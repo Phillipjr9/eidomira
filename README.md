@@ -57,9 +57,22 @@ A clean production-oriented rebuild for consensual, self-only real-time face tra
 ## Public landing page
 
 `static/index.html` is the marketing page. It is self-contained, dependency-free, and
-ships as static files: `landing.css` (design system + sections + motion), `landing.js`
+ships as static files: `landing.css` (landing sections + motion), `landing.js`
 (interactions), `fonts.css` + `static/fonts/*.woff2` (self-hosted Instrument Serif,
 Inter Tight, JetBrains Mono — no third-party requests, so `style-src 'self'` holds).
+
+### Stylesheet layout
+
+| File | Owns |
+| --- | --- |
+| `tokens.css` | Design tokens, reset, buttons, pills, reveal utilities, auth modal. Shared. |
+| `landing.css` | Public page: nav, hero, gallery, steps, pricing, FAQ, footer. |
+| `studio.css` | Private workbench, telemetry, calls dock, OBS clean output. |
+
+`tokens.css` is the only place tokens are declared; both page sheets consume them with
+`var()` and tests forbid `:root` in the page sheets, so the public page and the private
+studio cannot drift. The studio page class is `body.workspace` (not `.studio`) because
+`.studio` was already the two-column video grid inside it.
 
 Design notes:
 
@@ -78,6 +91,21 @@ Design notes:
 `/` and `/static/*` are embeddable (no session state, no credentials) so the marketing
 page can be hosted in previews, docs and product embeds. `/app` and `/api/*` keep
 `X-Frame-Options: SAMEORIGIN` and `frame-ancestors 'self'`.
+
+## Studio (`/app`)
+
+The private workbench was previously a second marketing site bolted onto the tool: its own
+hero, feature grid, workflow, benefit tabs and pricing section, on the old pale-blue skin.
+It is now just the workbench, in the same design system as the public page, with the
+duplicated marketing content removed (the landing page owns that job).
+
+Kept intact: every id `app.js` queries — camera, output, liveness, recording, telemetry,
+calls, account and billing controls — plus the `.stage` / `.stage.output` / `.viewport`
+structure that OBS clean mode depends on, and the `.hasImage`, `.recording` and `.active`
+class hooks `app.js` toggles. `tests/test_studio_contract.py` enforces all of it.
+
+Because camera access is granted to top-level pages only, the studio is not embeddable:
+`/app` keeps `SAMEORIGIN` and `frame-ancestors 'self'`.
 
 ## On-device demo (`/#try`)
 

@@ -1,10 +1,11 @@
-const CACHE='eidomira-shell-v2';
+const CACHE='eidomira-shell-v3';
 const SHELL=[
   '/',
   '/static/fonts.css',
+  '/static/tokens.css',
   '/static/landing.css',
+  '/static/studio.css',
   '/static/landing.js',
-  '/static/style.css',
   '/static/app.js',
   '/static/manifest.webmanifest',
   '/static/favicon-32.png',
