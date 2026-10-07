@@ -152,6 +152,13 @@ InsightFace code and pretrained weights have different licenses. Pretrained InSw
 
 Direct peer-to-worker WebRTC is implemented for the MVP. Before a high-concurrency launch, add a production TURN service and regional SFU/gateway rather than terminating every public peer directly on GPU workers. The current scheduler deliberately drops stale frames instead of accumulating latency, but GPU admission control is still required for multiple simultaneous neural sessions.
 
+## Third-party code review
+
+See [`docs/third-party-review.md`](docs/third-party-review.md) before adding code borrowed
+from another repository. It records reviewed repos with a verdict, and includes the checks
+to run first — starting with reading build files, since hooks like MSBuild `PreBuild` run
+on build and can execute anything.
+
 ## Safety boundary
 
 The default product policy is self-only enrollment. The neural backend compares the live face embedding to the enrolled reference before processing. Reference state is held in memory and expires automatically. Camera frames are not written to disk.
