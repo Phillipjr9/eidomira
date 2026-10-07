@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     #: One-click demo sign-in. Off by default, refused outright over https, and the demo
     #: passwords are random — see app/demo.py for why none of that is negotiable.
     demo_login: bool = False
+    #: Origins allowed to frame the studio and the owner console, space or comma separated.
+    #: Empty — the default — keeps `frame-ancestors 'self'`, which is what stops another site
+    #: from putting the studio in a frame and collecting clicks meant for its buttons. It needs
+    #: a value only where the app is deliberately embedded: a hosted preview is served inside a
+    #: frame, and there the default refuses to render the page at all. `*` is accepted and
+    #: discouraged.
+    embed_ancestors: str = ""
     #: Optional, and deliberately blank: setting it *publishes* a credential, because the
     #: login card shows it and the accounts then accept it on the ordinary sign-in form. It
     #: only takes effect while demo_login is on, and it must satisfy the normal password

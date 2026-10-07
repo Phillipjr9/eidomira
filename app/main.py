@@ -4,7 +4,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Depends, BackgroundTasks, Request, Header
-from fastapi.responses import FileResponse, JSONResponse, Response, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -206,31 +206,38 @@ def lab():
 
 
 @app.get("/app")
-def private_app(request: Request, user=Depends(optional_user)):
-    """The private workspace — and, signed out, the way to the door rather than a wall.
+def private_app():
+    """The studio shell, served to anyone. The session is not a cookie this page can see.
 
-    Every "Open Studio" link on the marketing page lands here, so answering a browser with a
-    bare 401 is how a visitor concludes there is no way in: the login card is on `/`, and
-    nothing here said so. A request that asks for HTML is therefore sent to the card with the
-    sign-in form already open. Nothing private is served either way — the shell is public at
-    /static/app.html, and every byte of data behind it still needs the session — and no API
-    client is affected: a request that does not ask for HTML gets the same 401 with the same
-    body it always did.
+    This route used to answer 401, then 302 to the login card, when the request carried no
+    session cookie. That gate was never able to work here, and it locked a signed-in user out
+    of the page they had just signed in to:
 
-    One limitation worth stating: with `STUDIO_REQUIRE_AUTH=1` the session check runs inside
-    the dependency, which refuses before this function is reached, so the redirect does not
-    apply. That setting exists for installations putting a real front door in front.
+    * the session this product actually uses lives in `localStorage`, and the client sends it
+      as `Authorization: Bearer` on every API call — `static/app.js` does exactly that;
+    * a browser *navigation* cannot send that header, so the gate had only the cookie to go on;
+    * and in an embedded or third-party context the cookie is simply not there. The preview
+      this runs in proved it: `POST /api/auth/demo-login` answered 200, the very next request
+      to `/app` arrived with no cookie, and the user was sent back to the card forever.
+
+    Nothing is given away by serving it: the shell is a static file that has always been public
+    at `/static/app.html`, it holds no data and no credential, and every byte *behind* it still
+    needs a session — `/api/auth/me`, `/api/billing/account`, `/api/admin/overview` and the rest
+    are unchanged. What decides whether a visitor sees the studio or the sign-in card is now
+    `static/app.js`, which holds the token and is therefore the only thing that can answer the
+    question correctly.
     """
-    if user["id"] == "local-guest":
-        if "text/html" in request.headers.get("accept", ""):
-            return RedirectResponse("/?signin=1", status_code=302)
-        raise HTTPException(401, "Authentication required")
     return pages.html(ROOT / "static" / "app.html")
 
 
 @app.get("/admin", include_in_schema=False)
-def owner_console(user=Depends(require_admin)):
-    """The owner's page. Ordinary accounts never see the link, and never reach the file."""
+def owner_console():
+    """The owner console shell. Same reasoning as `/app` above, and the same non-promise.
+
+    The page is not the privilege: every figure it shows comes from `/api/admin/overview`,
+    which refuses an anonymous caller with 401 and an ordinary account with 403 exactly as it
+    did before. The client that has the token asks, and the answer decides.
+    """
     return pages.html(ROOT / "static" / "admin.html")
 
 

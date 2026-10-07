@@ -1,16 +1,22 @@
-"""How a page reaches a browser — two failures found by a user who could not find the login.
+"""How a page reaches a browser, and what a page is allowed to decide.
 
-`/app` is where every "Open Studio" link on the marketing page lands, and a signed-out
-browser was answered with a bare 401 holding no way forward. The login card is on `/`, and
-nothing on the 401 said so, so the honest reading of that page was "there is no way in".
-`static/app.js` had *always* meant to send people to `/?signin=1` for exactly this reason —
-the line was there, and it never ran, because the server refused before the script was
-served. The landing page, for its part, ignored the parameter. Both halves are pinned here.
+Three failures live here, all found by a user who could not get in.
 
-The second failure is quieter: no page carried a cache directive, so a browser was entitled
-to reuse what it already had instead of asking. A fix that is live on the server can stay
-invisible in a tab that was open across the deploy, which is indistinguishable from a fix
-that did not work.
+The first: `/app` is where every "Open Studio" link lands, and a signed-out browser was
+answered with a bare 401 holding no way forward. The login card is on `/`; nothing said so.
+
+The second: that was "fixed" by gating the page on the session cookie, which cannot work in
+this product. The session lives in `localStorage` and travels as an `Authorization` header on
+API calls, and a *navigation* cannot send a header — so the gate had only the cookie, and in
+an embedded context the cookie never arrives. The preview proved it: `POST /api/auth/demo-login`
+answered 200, the next `GET /app` arrived with no cookie, and the user was sent back to the
+card in a loop. The page is now served to anyone and the *client* decides, because the client
+is the only side holding the token. What makes that safe is the rule that always applied and
+is pinned below: the shell is a static file, and the data behind it needs the session.
+
+The third is quieter: no page carried a cache directive, so a browser was entitled to reuse
+what it already had. A fix that is live on the server can stay invisible in a tab that was
+open across the deploy, which is indistinguishable from a fix that did not work.
 """
 from __future__ import annotations
 
@@ -21,6 +27,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app import pages
+from app.config import settings
 from app.main import app
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,21 +38,73 @@ static = ROOT / "static"
 BROWSER = {"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
 
 
-def test_a_signed_out_browser_is_sent_to_the_login_card(isolated_db):
+def test_the_studio_shell_is_served_without_a_session(isolated_db):
+    """The regression that mattered, in the shape it happened.
+
+    A browser that had just signed in carried the session in `localStorage` and no cookie at
+    all. A server-side gate can only see cookies, so it refused a user who was, by every
+    measure this product uses, signed in. The page must load; `static/app.js` reads the token
+    and redirects when there is not one — its first executable line, pinned below.
+    """
     with TestClient(app) as client:
-        response = client.get("/app", headers=BROWSER, follow_redirects=False)
+        assert client.get("/app", headers=BROWSER, follow_redirects=False).status_code == 200
+        assert client.get("/app").status_code == 200, "an API client gets the shell too"
+        assert client.get("/admin", headers=BROWSER).status_code == 200
 
-    assert response.status_code == 302
-    assert response.headers["location"] == "/?signin=1"
 
+def test_the_shell_holds_nothing_worth_hiding(isolated_db):
+    """Why serving it to anyone is not a leak: it is the same static file the browser could
+    always fetch at /static/app.html, it names no account, and it carries no session.
 
-def test_an_api_client_still_gets_the_401_it_always_got(isolated_db):
-    """The contract the redirect must not change: no HTML asked for, no HTML assumed."""
+    A `type="password"` input is expected and is not a credential — it is the box somebody
+    types into. What must not be here is a *filled-in* one, a token, or an address.
+    """
     with TestClient(app) as client:
-        response = client.get("/app")
+        shell = client.get("/app").text
 
-    assert response.status_code == 401
-    assert response.json() == {"detail": "Authentication required"}
+    assert not re.search(r"eyJ[A-Za-z0-9_-]{10,}\.", shell), "the shell carries a token"
+    assert "eidomira_access_token" not in shell, "the shell names the session key"
+    assert not re.search(r"[\w.+-]+@[\w-]+\.[A-Za-z]{2,}", shell), "the shell names an address"
+    assert not re.search(r'(?i)<input[^>]+type="password"[^>]*value="[^"]+"', shell), \
+        "a password is written into the shell"
+    assert (static / "app.html").exists()
+
+
+def test_the_data_behind_the_shell_needs_a_session(isolated_db):
+    """The gate moved, it did not disappear. Every figure the studio shows comes from an API
+    that still refuses an anonymous caller, and the console's from one that refuses everyone
+    who is not an administrator."""
+    with TestClient(app) as client:
+        assert client.get("/api/billing/account").status_code == 401
+        assert client.get("/api/admin/overview").status_code == 401
+
+        email, password = "someone@example.com", "correct-horse-battery"
+        assert client.post("/api/auth/register", json={"email": email, "password": password}).status_code == 200
+        login = client.post("/api/auth/login", json={"email": email, "password": password})
+        assert login.status_code == 200
+        token = login.json()["access_token"]
+
+        assert client.get("/api/billing/account",
+                          headers={"authorization": f"Bearer {token}"}).status_code == 200
+        assert client.get("/api/admin/overview",
+                          headers={"authorization": f"Bearer {token}"}).status_code == 403
+
+
+def test_the_client_is_what_decides_who_sees_the_studio():
+    """The other half of the move, and the half a server test cannot exercise: the studio's
+    script redirects to the sign-in card when there is no token, and the console's script
+    sends the token it holds rather than hoping for a cookie."""
+    studio = (static / "app.js").read_text(encoding="utf-8")
+    assert "location.replace('/?signin=1')" in studio, \
+        "a signed-out visitor would see the studio shell and no way to sign in"
+    assert "localStorage.getItem('eidomira_access_token')" in studio
+
+    console = (static / "admin.js").read_text(encoding="utf-8")
+    assert "localStorage.getItem(TOKEN_KEY)" in console
+    assert 'headers.set("Authorization", "Bearer " + session)' in console
+    # Every request the console makes goes through apiFetch; a bare fetch() there would be a
+    # request without the session, which is the bug this replaced.
+    assert 'fetch("/api/' not in console, "the console calls an API without its session"
 
 
 def test_a_signed_in_browser_still_gets_the_workspace(isolated_db):
@@ -160,6 +219,55 @@ def test_navigations_do_not_reuse_the_http_cache():
     carries the stamps, so it is the one request that must always go to the network."""
     script = (ROOT / "static" / "sw.js").read_text(encoding="utf-8")
     assert "cache:'reload'" in script, "the service worker may serve a stale page"
+
+
+# ── who is allowed to put the studio in a frame ───────────────────────────────
+#
+# The studio's page refuses to render inside another site's frame, because its buttons are
+# worth stealing clicks for. A hosted preview is served inside a frame, so there the default
+# refuses to render it at all — which is why an operator who embeds it says so explicitly.
+
+def test_the_private_pages_refuse_to_be_framed_by_default(isolated_db):
+    with TestClient(app) as client:
+        for page in ("/app", "/admin"):
+            headers = client.get(page, headers=BROWSER).headers
+            assert "frame-ancestors 'self'" in headers["content-security-policy"], page
+            assert headers["x-frame-options"] == "SAMEORIGIN", page
+
+
+def test_the_marketing_page_is_framed_by_design(isolated_db):
+    """Product embeds and hosted previews show it, so it stays embeddable — and it holds no
+    session, which is what makes that safe."""
+    with TestClient(app) as client:
+        headers = client.get("/", headers=BROWSER).headers
+
+    assert "frame-ancestors *" in headers["content-security-policy"]
+    assert "x-frame-options" not in headers
+
+
+def test_a_configured_ancestor_is_allowed_and_x_frame_options_stands_down(monkeypatch, isolated_db):
+    """X-Frame-Options cannot express a list and would veto the allowed frame, so it is sent
+    only where it agrees with the policy."""
+    monkeypatch.setattr(settings, "embed_ancestors", "https://*.e2b.app, https://docs.example.com")
+
+    with TestClient(app) as client:
+        headers = client.get("/app", headers=BROWSER).headers
+        marketing = client.get("/", headers=BROWSER).headers
+
+    assert "frame-ancestors https://*.e2b.app https://docs.example.com" in headers["content-security-policy"]
+    assert "x-frame-options" not in headers
+    assert "frame-ancestors *" in marketing["content-security-policy"]
+
+
+def test_an_empty_setting_is_the_default_and_an_empty_value_stays_closed(monkeypatch, isolated_db):
+    """Whitespace is not a permission: `STUDIO_EMBED_ANCESTORS=" "` must not open the door."""
+    monkeypatch.setattr(settings, "embed_ancestors", "   ")
+
+    with TestClient(app) as client:
+        headers = client.get("/app", headers=BROWSER).headers
+
+    assert "frame-ancestors 'self'" in headers["content-security-policy"]
+    assert headers["x-frame-options"] == "SAMEORIGIN"
 
 
 def test_the_login_card_does_not_take_over_a_signed_in_visitor():

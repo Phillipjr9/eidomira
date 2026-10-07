@@ -1,5 +1,7 @@
 from fastapi import Request
 
+from app.config import settings
+
 # Routes that are safe to embed. The public marketing page holds no session state and no
 # credentials, so framing it (product embeds, hosted previews, docs) is allowed. Everything
 # else — the private workspace and the API — keeps the strict anti-framing policy.
@@ -16,10 +18,22 @@ def _is_embeddable(path: str) -> bool:
     return path in EMBEDDABLE_PATHS or path.startswith("/static/")
 
 
+def _configured_ancestors() -> str | None:
+    """What the operator allowed to frame the private pages, or None if nothing is allowed.
+
+    Kept separate from `_is_embeddable`: the marketing page is framed by design, the studio is
+    not, and a deployment that embeds the studio has said so on purpose.
+    """
+    allowed = [origin.strip() for origin in settings.embed_ancestors.replace(",", " ").split()]
+    return " ".join(allowed) if allowed else None
+
+
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
 
-    frame_policy = "*" if _is_embeddable(request.url.path) else "'self'"
+    embeddable = _is_embeddable(request.url.path)
+    ancestors = _configured_ancestors()
+    frame_policy = "*" if embeddable else (ancestors or "'self'")
     response.headers.update({
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -37,7 +51,11 @@ async def security_headers_middleware(request: Request, call_next):
         ),
     })
 
-    if not _is_embeddable(request.url.path):
+    # X-Frame-Options cannot express a list of ancestors, and browsers that understand it
+    # ignore it when a frame-ancestors policy is present. It is sent only where it agrees with
+    # the policy: for the private pages with nothing configured, where it is the belt to the
+    # CSP's braces, and never for the pages an operator has chosen to embed.
+    if not embeddable and ancestors is None:
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
 
     if request.url.path.startswith("/api/"):

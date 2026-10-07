@@ -220,10 +220,14 @@ def test_one_click_signs_in_without_a_password(demo_on):
         assert body["user"]["role"] == "user"
         assert body["access_token"]
 
-        # The cookie is what makes a browser navigation to a page work, not just fetch().
+        # The cookie is sent for the API paths that accept one — and the token in the body is
+        # what a browser actually carries, since a navigation cannot send a header.
         assert client.get("/api/auth/me").json()["role"] == "user"
         assert client.get("/app").status_code == 200
-        assert client.get("/admin").status_code == 403
+        # The console refuses this account's *data*; the page itself is a shell served to
+        # anyone, and the console's own script is what turns an ordinary account away.
+        assert client.get("/api/admin/overview").status_code == 403
+        assert client.get("/admin").status_code == 200
 
 
 def test_the_admin_button_reaches_the_owner_console(demo_on):

@@ -104,18 +104,28 @@ def all_keys(node, prefix: str = "") -> set[str]:
 # ── who gets in ───────────────────────────────────────────────────────────────
 
 def test_anonymous_callers_are_turned_away(client):
-    """The console must not be reachable by navigating to it, even though this build runs
-    with accounts optional for the studio itself."""
-    assert client.get("/admin").status_code == 401
+    """The console's *data* is unreachable, which is the property that matters.
+
+    The page itself is a static shell served to anyone, the same file the browser could always
+    fetch at /static/admin.html. It names no account and shows no figure; every number on it
+    arrives from this endpoint, and this endpoint refuses. Gating the shell on a cookie is what
+    previously locked a signed-in administrator out of their own console — the session lives in
+    localStorage and a navigation cannot carry it — so the check belongs here, not there.
+    """
     assert client.get("/api/admin/overview").status_code == 401
+    assert client.get("/admin").status_code == 200
+    shell = client.get("/admin").text
+    assert "owner@" not in shell and "demo@" not in shell
 
 
 def test_an_ordinary_account_is_not_an_administrator(client):
     sign_up(client, "member@example.com")
     sign_in(client, "member@example.com")
 
-    assert client.get("/admin").status_code == 403
     assert client.get("/api/admin/overview").status_code == 403
+    # The shell is served; the console's own script is what turns an ordinary account away,
+    # and it can only do that because it holds the token and asks this endpoint.
+    assert client.get("/admin").status_code == 200
 
 
 def test_promoting_an_account_opens_the_console(client, capsys):
@@ -190,9 +200,11 @@ def test_demotion_applies_to_a_token_that_is_still_valid(client, capsys):
     code, out, _ = run(capsys, ["--demote", "temp@example.com"])
     assert code == 0 and "demoted" in out
 
-    # No re-login, no waiting for expiry: the next request is already an ordinary one.
+    # No re-login, no waiting for expiry: the next request is already an ordinary one. The
+    # token is still valid — it is the role that changed — so /api/auth/me still answers.
     assert client.get("/api/admin/overview").status_code == 403
-    assert client.get("/admin").status_code == 403
+    assert client.get("/api/auth/me").status_code == 200
+    assert client.get("/api/auth/me").json()["role"] == "user"
 
 
 def test_the_last_administrator_cannot_be_demoted(capsys):

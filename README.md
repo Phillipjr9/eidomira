@@ -652,15 +652,27 @@ are ordinary accounts: they are created on first use with a verified address and
 100-credit trial, they appear in the owner console marked as demo, and hiding the buttons
 (`STUDIO_DEMO_LOGIN=0`) does not delete them.
 
-**A signed-out browser is sent to the login card rather than shown a 401.** Every "Open
-Studio" link lands on `/app`, which needs a session; answering a browser with a bare 401 is
-how a visitor concludes there is no way in, because the card lives on `/` and nothing said
-so. A request that asks for HTML is now redirected to `/?signin=1`, which opens the card on
-arrival; a request that does not (`curl`, an API client) still gets the same 401 with the
-same body. Nothing private moves either way — the shell has always been readable at
-`/static/app.html`, and every byte of data behind it still needs the session. With
-`STUDIO_REQUIRE_AUTH=1` the check runs inside the dependency instead, so no redirect happens
-there; that setting exists for installations putting a real front door in front.
+**The studio's page is served to anyone; its data is not.** `/app` and `/admin` are static
+shells — no accounts, no figures, no session — and the same files have always been readable at
+`/static/app.html` and `/static/admin.html`. What decides whether a visitor sees the studio or
+the sign-in card is `static/app.js`, which redirects to `/?signin=1` when there is no token,
+and every byte the studio displays comes from an API that refuses an anonymous caller.
+
+That is not a choice so much as a correction. The page used to be gated on the server, and the
+server could only see a **cookie** — while this product's session lives in `localStorage` and
+travels as an `Authorization` header, which a *browser navigation* cannot send. Where the
+cookie is blocked (any embedded or third-party context, which is exactly how the preview is
+served) the gate locked out somebody who had just signed in successfully: `POST
+/api/auth/demo-login` answered 200, the next `GET /app` arrived with no cookie, and the user
+bounced back to the sign-in card in a loop. The client is the only side holding the token, so
+the client makes the call. `/api/admin/overview` still answers 401 to an anonymous caller and
+403 to an ordinary account, unchanged.
+
+**Embedding the studio is an opt-in.** Those pages send `frame-ancestors 'self'`, which stops
+another site framing them and harvesting clicks meant for their buttons — and which also means
+a page served *inside* a frame will not render at all. Set `STUDIO_EMBED_ANCESTORS` to the
+origins allowed to frame them (space or comma separated, `*` discouraged) when the app is
+deliberately embedded; the default stays closed.
 
 **Pages and scripts are revalidated, not reused — and their URLs change when they do.**
 Every page is served with `Cache-Control: no-cache`, so a browser asks before using its copy

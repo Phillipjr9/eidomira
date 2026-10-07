@@ -11,6 +11,20 @@
 
 const $ = (id) => document.getElementById(id);
 
+/* The session lives in localStorage and travels as a header — the same store and the same
+ * header `app.js` uses. It is not read from a cookie, because a console that trusts a cookie
+ * is a console that is blank exactly where this one was deployed: the studio's first working
+ * deployment served it inside a frame whose cookies never arrived. */
+const TOKEN_KEY = "eidomira_access_token";
+const token = () => localStorage.getItem(TOKEN_KEY) || "";
+
+async function apiFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const session = token();
+  if (session) headers.set("Authorization", "Bearer " + session);
+  return fetch(url, { ...options, headers });
+}
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -299,9 +313,9 @@ function renderReports(data) {
 /* ── boot ────────────────────────────────────────────────────────────────── */
 
 async function load() {
-  const response = await fetch("/api/admin/overview", { headers: { Accept: "application/json" } });
+  const response = await apiFetch("/api/admin/overview", { headers: { Accept: "application/json" } });
   if (response.status === 401) {
-    showError("You are not signed in on this browser.", { label: "Sign in", href: "/app" });
+    showError("You are not signed in on this browser.", { label: "Sign in", href: "/?signin=1" });
     return;
   }
   if (response.status === 403) {
@@ -331,7 +345,7 @@ async function load() {
 
 async function whoAmI() {
   try {
-    const me = await fetch("/api/auth/me", { headers: { Accept: "application/json" } });
+    const me = await apiFetch("/api/auth/me", { headers: { Accept: "application/json" } });
     if (!me.ok) return;
     const user = await me.json();
     $("who").textContent = user.email || "—";
@@ -339,7 +353,8 @@ async function whoAmI() {
 }
 
 $("signOut").addEventListener("click", async () => {
-  try { await fetch("/api/auth/logout", { method: "POST" }); } catch { /* leaving anyway */ }
+  try { await apiFetch("/api/auth/logout", { method: "POST" }); } catch { /* leaving anyway */ }
+  localStorage.removeItem(TOKEN_KEY);
   window.location.href = "/";
 });
 
