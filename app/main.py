@@ -14,7 +14,7 @@ from aiortc import RTCPeerConnection, RTCSessionDescription
 from app.config import DEVELOPMENT_AUTH_SECRET, settings
 from app.ice import rtc_configuration
 from app.calls import create_room_name, create_call_token
-from app.security import register, authenticate, access_token, optional_user, authenticated_user, issue_email_token, verify_email_token
+from app.security import register, authenticate, access_token, optional_user, authenticated_user, require_admin, issue_email_token, verify_email_token
 from app.database import database
 from app.mailer import send_verification
 from app.billing import PLAN, TOOLS, create_trial, account as billing_account, quote as billing_quote
@@ -25,6 +25,7 @@ from app.headers import security_headers_middleware
 import json, time, uuid
 from app.engines import create_engine
 from app.sessions import SessionStore
+import app.admin as admin
 from app.rtc import LatestFrameProcessor, ProcessedVideoTrack, peers
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -177,6 +178,17 @@ def lab():
 @app.get("/app")
 def private_app(user=Depends(authenticated_user)):
     return FileResponse(ROOT / "static" / "app.html")
+
+
+@app.get("/admin", include_in_schema=False)
+def owner_console(user=Depends(require_admin)):
+    """The owner's page. Ordinary accounts never see the link, and never reach the file."""
+    return FileResponse(ROOT / "static" / "admin.html")
+
+
+@app.get("/api/admin/overview", include_in_schema=False)
+def admin_overview(user=Depends(require_admin)):
+    return admin.overview(engine, sessions, peers)
 
 
 @app.get("/metrics", include_in_schema=False)

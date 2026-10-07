@@ -141,4 +141,7 @@ def test_returned_user_object_never_contains_the_password_hash(client):
     sign_up(client, "nohash@example.com")
     body = sign_in(client, "nohash@example.com", PASSWORD).json()
     assert "password" not in str(body).lower() or "password_hash" not in str(body)
-    assert set(body["user"]) == {"id", "email", "email_verified"}
+    assert set(body["user"]) == {"id", "email", "email_verified", "role"}
+    # The field exists so the studio can decide whether to show the owner console link.
+    # A fresh registration must never be the thing that grants it.
+    assert body["user"]["role"] == "user"

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Owner console · Eidomira Live</title>
+<meta name="description" content="Private owner console: accounts, payments, and whether this installation can actually run a face swap.">
+<meta name="theme-color" content="#08080d">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/fonts.css">
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/studio.css">
+<link rel="stylesheet" href="/static/admin.css">
+</head>
+
+<body class="workspace">
+<div class="fx-vignette" aria-hidden="true"></div>
+<div class="fx-grain" aria-hidden="true"></div>
+
+<header class="bar">
+  <div class="bar__inner">
+    <a class="brand" href="/" aria-label="Eidomira Live home">
+      <img class="brand__mark" src="/static/icon-192.png" alt="" width="34" height="34">
+      <span class="brand__word">Eidomira <b>Live</b></span>
+    </a>
+    <span class="bar__spacer"></span>
+    <span class="pill ad-tag">owner console</span>
+    <span class="ad-who"><strong id="who">—</strong></span>
+    <a class="btn btn--ghost" href="/app">Studio</a>
+    <button class="btn btn--ghost" id="signOut" type="button">Sign out</button>
+  </div>
+</header>
+
+<main class="ad-main">
+  <div class="ad-error" id="error" role="alert" hidden></div>
+
+  <div class="ad-loading" id="loading">Reading this installation…</div>
+
+  <div id="console" hidden>
+    <!-- ══ The verdict ══════════════════════════════════════════════════════════
+         First, and in plain words, because it is the question the other panels are
+         only evidence for. -->
+    <section class="ad-verdict" id="verdict" aria-live="polite"></section>
+    <p class="ad-stamp" id="stamp"></p>
+
+    <div class="ad-grid">
+      <section class="panel ad-card">
+        <h2>Engine</h2>
+        <div class="ad-rows" id="engine"></div>
+      </section>
+
+      <section class="panel ad-card">
+        <h2>Model files and runtimes</h2>
+        <p class="ad-note" id="weightsNote"></p>
+        <div class="ad-rows" id="models"></div>
+        <div class="ad-tableWrap"><table class="ad-table" id="weights"></table></div>
+      </section>
+
+      <section class="panel ad-card ad-card--wide">
+        <h2>Accounts</h2>
+        <div class="ad-counts" id="accountCounts"></div>
+        <div class="ad-tableWrap"><table class="ad-table" id="accounts"></table></div>
+        <p class="ad-note" id="accountNote"></p>
+      </section>
+
+      <section class="panel ad-card ad-card--wide">
+        <h2>Payments</h2>
+        <div class="ad-counts" id="paymentCounts"></div>
+        <div class="ad-tableWrap"><table class="ad-table" id="paymentTable"></table></div>
+        <p class="ad-note" id="paymentNote"></p>
+      </section>
+
+      <section class="panel ad-card">
+        <h2>Live now</h2>
+        <div class="ad-rows" id="live"></div>
+      </section>
+
+      <section class="panel ad-card">
+        <h2>Security posture</h2>
+        <div class="ad-rows" id="security"></div>
+      </section>
+
+      <section class="panel ad-card ad-card--wide">
+        <h2>Trainer reports</h2>
+        <p class="ad-note" id="reportNote"></p>
+        <div class="ad-tableWrap"><table class="ad-table" id="reports"></table></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script src="/static/admin.js"></script>
+</body>
+</html>

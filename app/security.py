@@ -9,7 +9,7 @@ import hashlib
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from fastapi import Header, HTTPException, Cookie
+from fastapi import Header, HTTPException, Cookie, Depends
 
 from app.config import settings
 from app.database import database
@@ -50,7 +50,9 @@ def register(email: str, password: str):
         # not be reported to the caller as "that email is taken".
         if "users.email" in str(exc): raise ValueError("An account already uses that email") from exc
         raise
-    return {"id": user_id, "email": email, "email_verified": False}
+    # Not read from the request: whatever a caller sends, a new account is an ordinary
+    # account. Promotion is an operator action (tools/grant_admin.py), never a parameter.
+    return {"id": user_id, "email": email, "email_verified": False, "role": "user"}
 
 
 def issue_email_token(user_id: str):
@@ -84,7 +86,8 @@ def authenticate(email: str, password: str):
     except VerifyMismatchError: return None
     if hasher.check_needs_rehash(user["password_hash"]):
         database.execute("UPDATE users SET password_hash=? WHERE id=?", (hasher.hash(password), user["id"]))
-    return {"id": user["id"], "email": user["email"], "email_verified":bool(user.get("email_verified_at"))}
+    return {"id": user["id"], "email": user["email"], "email_verified":bool(user.get("email_verified_at")),
+            "role": user.get("role") or "user"}
 
 
 def access_token(user):
@@ -97,7 +100,7 @@ def access_token(user):
 def optional_user(authorization: str | None = Header(default=None), eidomira_access_token: str | None = Cookie(default=None)):
     if not authorization and not eidomira_access_token:
         if settings.require_auth: raise HTTPException(401, "Authentication required")
-        return {"id":"local-guest","email":"local@eidomira.invalid","email_verified":False}
+        return {"id":"local-guest","email":"local@eidomira.invalid","email_verified":False,"role":"guest"}
     try:
         if authorization:
             scheme, token = authorization.split(" ",1)
@@ -105,9 +108,14 @@ def optional_user(authorization: str | None = Header(default=None), eidomira_acc
         else:
             token=eidomira_access_token
         payload = jwt.decode(token, settings.auth_secret, algorithms=["HS256"])
-        user = database.one("SELECT id,email,disabled,email_verified_at FROM users WHERE id=?", (payload["sub"],))
+        # The role is read from the database on every request rather than carried in the
+        # token. A token that claims a role it was not issued with therefore does nothing,
+        # and demoting an administrator takes effect on their next click instead of when
+        # their token expires.
+        user = database.one("SELECT id,email,disabled,email_verified_at,role FROM users WHERE id=?", (payload["sub"],))
         if not user or user["disabled"]: raise ValueError
-        return {"id":user["id"],"email":user["email"],"email_verified":bool(user["email_verified_at"])}
+        return {"id":user["id"],"email":user["email"],"email_verified":bool(user["email_verified_at"]),
+                "role":user["role"] or "user"}
     except Exception as exc:
         raise HTTPException(401, "Invalid or expired access token") from exc
 
@@ -115,4 +123,16 @@ def optional_user(authorization: str | None = Header(default=None), eidomira_acc
 def authenticated_user(authorization: str | None = Header(default=None), eidomira_access_token: str | None = Cookie(default=None)):
     user=optional_user(authorization,eidomira_access_token)
     if user["id"] == "local-guest": raise HTTPException(401,"Authentication required")
+    return user
+
+
+def require_admin(user=Depends(authenticated_user)):
+    """Owner access, for the console that reports what this installation really is.
+
+    Deliberately stricter than "is signed in": an ordinary account gets 403, an anonymous
+    caller gets 401, and the local-guest fallback (which exists so the studio can run
+    without accounts) can never satisfy it.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Administrator access required")
     return user

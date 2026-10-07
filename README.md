@@ -485,6 +485,51 @@ Set `STUDIO_PUBLIC_URL` and SMTP values from `.env.example`. Without SMTP, devel
 
 Endpoints: `POST /api/auth/register`, `/api/auth/login`, `/api/auth/verify-email`, `/api/auth/resend-verification`; `GET /api/plans`, `/api/billing/account`; `POST /api/billing/quote`.
 
+### The owner console (`/admin`)
+
+Eidomira has one privileged role, and it is created on the server rather than through the
+site. Register an account like anyone else, then promote it:
+
+```
+python -m tools.grant_admin --list               # every account and its role
+python -m tools.grant_admin you@example.com      # grant administrator
+python -m tools.grant_admin --demote you@example.com
+```
+
+The tool refuses to demote the last administrator, refuses to invent an account that has
+not registered, and prints the database it acted on, because promoting an account on the
+wrong database looks exactly like a command that worked. Administrators see an **Owner
+console** link in the studio's account bar; nobody else is told the page exists.
+
+`/admin` reports what the installation *is* rather than what it is configured to be:
+
+- **a verdict, first** — "this installation can run a neural face swap" or "cannot", with
+  each reason listed. It is computed from the filesystem and the installed runtimes, so a
+  deployment whose owner believes it is swapping faces is told otherwise, in words,
+  before anything else on the page;
+- engine, execution provider and hardware acceleration, as `/api/health` reports them;
+- model files in `models/` with their sizes, and which of `onnxruntime`, `insightface`
+  and `torch` are importable;
+- accounts: address, role, plan, credits, credits used, when they joined, and whether
+  they are verified or disabled;
+- payments: Paystack intents by status, amounts in kobo, and whether any delivered
+  webhook is still unprocessed;
+- live sessions and WebRTC peers against their capacity;
+- security posture — whether the session signing key is still the one from this
+  repository, whether accounts are required, the limits, and which integrations are
+  configured;
+- the trainer's written reports, newest first.
+
+Three things about it are deliberate. **The role is read from the database on every
+request, never from the token**, so demoting somebody takes effect on their next click
+rather than when their token expires, and a forged token claiming a role does nothing.
+**It is read-only**: suspending an account or refunding a payment is a second product with
+a second threat model, and this one exists to answer questions. And **it renders nothing
+with `innerHTML`** — every value on the page comes from the database and some of it is text
+a user chose, so the page builds nodes instead. `tests/test_admin.py` holds all three,
+including a check that the payload never contains a password hash, a token hash, or a
+signing key.
+
 ### Sign-in behaviour worth knowing
 
 **Unknown addresses cost the same as wrong passwords.** `authenticate()` used to return

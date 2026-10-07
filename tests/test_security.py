@@ -132,7 +132,8 @@ def test_register_stores_a_verifiable_hash_and_never_the_password(isolated_db):
 def test_authenticate_accepts_the_right_password(isolated_db, stored_hash):
     uid = make_user("right@example.com", password_hash=stored_hash)
     user = security.authenticate("right@example.com", PASSWORD)
-    assert user == {"id": uid, "email": "right@example.com", "email_verified": False}
+    assert user == {"id": uid, "email": "right@example.com", "email_verified": False,
+                    "role": "user"}
 
 
 def test_authenticate_is_case_insensitive_on_the_address(isolated_db, stored_hash):
