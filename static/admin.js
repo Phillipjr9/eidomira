@@ -200,6 +200,7 @@ function renderAccounts(data) {
   fill("accountCounts", [
     count(data.total, "accounts"),
     count(counts.admins, "admins"),
+    count(counts.demo, "demo"),
     count(counts.paying, "paying"),
     count(counts.verified, "verified"),
     count(counts.unverified, "unverified"),
@@ -209,7 +210,8 @@ function renderAccounts(data) {
   table("accounts", ["Email", "Role", "Plan", "Credits", "Used", "Joined", "State"],
     data.accounts.map((a) => [
       { className: "email", node: el("span", null, a.email) },
-      a.role === "admin" ? tag("admin", "admin") : { className: "num", text: a.role },
+      { className: "num", node: el("span", "tag" + (a.role === "admin" ? " tag--admin" : (a.demo ? " tag--warn" : "")),
+                                   a.role + (a.demo ? " \u00b7 demo" : "")) },
       a.plan ? (a.plan_active ? a.plan : a.plan + " (" + a.plan_status + ")") : "—",
       { className: "num", text: a.credits },
       { className: "num", text: a.credits_used },
@@ -275,6 +277,8 @@ function renderSecurity(system) {
         security.email_configured ? "good" : "warn"),
     row("Paystack", security.paystack_configured ? "configured" : "not configured",
         security.paystack_configured ? "good" : "warn"),
+    row("One-click demo sign-in", security.demo_login ? "ON — anyone who can reach this server can use it" : "off",
+        security.demo_login ? "bad" : "dim"),
     row("TURN relay", security.turn_configured ? "configured" : "not configured",
         security.turn_configured ? "good" : "dim"),
     row("Calls (LiveKit)", security.calls_configured ? "configured" : "not configured",

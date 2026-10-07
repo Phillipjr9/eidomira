@@ -631,6 +631,19 @@ someone who knows an address can deliberately trigger that lockout. The budget i
 before the password because that is the only ordering that slows guessing down. Raise
 `login_limit_per_hour` to trade protection for availability, or lower it to do the reverse.
 
+**One-click demo sign-in is a flag, and it will not run on https.** Setting
+`STUDIO_DEMO_LOGIN=1` puts two buttons on the login card — a customer and an administrator
+— that open a seeded account without a password. Nothing is published to make that work:
+the passwords are random, appear in no file, and are never shown, because the button mints
+a session rather than typing a credential. The addresses are `demo@eidomira.test` and
+`admin@eidomira.test`; the `.test` domain is reserved by RFC 2606, so they cannot collide
+with a customer or receive mail. Setting the flag while `STUDIO_PUBLIC_URL` is `https://`
+turns the feature **off, not on** — an administrator account one click from a public page
+is the thing nobody means to ship — and the server logs the reason at startup. The accounts
+are ordinary accounts: they are created on first use with a verified address and the normal
+100-credit trial, they appear in the owner console marked as demo, and hiding the buttons
+(`STUDIO_DEMO_LOGIN=0`) does not delete them.
+
 **A proxy must be declared, or rate limiting degrades silently.** uvicorn only rewrites the
 peer address from `X-Forwarded-For` for proxies listed in `FORWARDED_ALLOW_IPS`
 (loopback by default). Left at the default behind a reverse proxy, every caller shares one

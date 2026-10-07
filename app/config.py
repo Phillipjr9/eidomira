@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     auth_secret: str = DEVELOPMENT_AUTH_SECRET
     access_token_ttl: int = 3600
     require_auth: bool = False
+    #: One-click demo sign-in. Off by default, refused outright over https, and the demo
+    #: passwords are random — see app/demo.py for why none of that is negotiable.
+    demo_login: bool = False
     rate_limit_per_minute: int = 120
     enrollment_limit_per_hour: int = 20
     # Failed sign-ins allowed per account per hour, on top of the per-IP limit.

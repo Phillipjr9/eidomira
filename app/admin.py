@@ -22,7 +22,7 @@ import importlib.util
 import time
 from pathlib import Path
 
-from app import billing
+from app import billing, demo
 from app.config import DEVELOPMENT_AUTH_SECRET, settings
 from app.database import database
 
@@ -142,6 +142,7 @@ def system(engine) -> dict:
             "enrollment_limit_per_hour": settings.enrollment_limit_per_hour,
             "email_configured": bool(settings.smtp_host),
             "paystack_configured": bool(settings.paystack_secret_key),
+            "demo_login": demo.enabled(),
             "turn_configured": bool(settings.turn_urls and settings.turn_secret),
             "calls_configured": bool(settings.livekit_api_key and settings.livekit_api_secret),
         },
@@ -177,6 +178,9 @@ def accounts() -> dict:
                                 and subscription.get("status") in {"trialing", "active"}),
             "credits": billing_account["wallet"]["total"],
             "credits_used": billing_account["credits_used"],
+            # Created by STUDIO_DEMO_LOGIN rather than by anybody signing up. Worth
+            # separating: an owner counting users should not count the furniture.
+            "demo": demo.is_demo_email(row["email"]),
         })
 
     return {
@@ -187,6 +191,7 @@ def accounts() -> dict:
         "accounts": listed,
         "counts": {
             "admins": sum(1 for a in listed if a["role"] == "admin"),
+            "demo": sum(1 for a in listed if a["demo"]),
             "verified": sum(1 for a in listed if a["verified"]),
             "unverified": sum(1 for a in listed if not a["verified"]),
             "disabled": sum(1 for a in listed if a["disabled"]),

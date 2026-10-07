@@ -40,6 +40,7 @@
       swap: $("#authSwitch"),
       message: $("#authMessage"),
       close: $("#authClose"),
+      demoRow: $("#demoRow"),
     };
     if (!el.modal || !el.form) return { open() {}, close() {} };
 
@@ -125,6 +126,44 @@
         el.message.style.color = "#ff8fc4";
       }
     }
+
+    /* One-click demo sign-in, when the server offers it. No credentials are read from
+       this page or written to it: the button asks for a session. */
+    async function demoSignIn(button) {
+      button.disabled = true;
+      el.message.textContent = "";
+      el.message.style.color = "";
+      try {
+        const response = await fetch("/api/auth/demo-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: button.dataset.role }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Demo sign-in failed");
+        localStorage.setItem(tokenKey, result.access_token);
+        location.href = "/app";
+      } catch (error) {
+        el.message.textContent = error.message;
+        el.message.style.color = "#ff8fc4";
+        button.disabled = false;
+      }
+    }
+
+    async function loadMethods() {
+      try {
+        const methods = await fetch("/api/auth/methods").then((r) => r.json());
+        if (!methods.demo_login || !el.demoRow) return;
+        el.demoRow.hidden = false;
+        el.demoRow.querySelectorAll(".demoButton").forEach((button) => {
+          button.addEventListener("click", () => demoSignIn(button));
+        });
+      } catch {
+        /* a demo is a convenience; the form is the product */
+      }
+    }
+
+    loadMethods();
 
     return { open, close, verifyEmail };
   })();

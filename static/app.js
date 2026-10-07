@@ -76,9 +76,40 @@ function renderWallet(billing,user){
   });
 }
 
+/* One-click demo sign-in.
+ *
+ * The password form is this page's real path; the demo row appears only when the server
+ * says it is switched on, and it carries no credentials at all — pressing it asks the
+ * server for a session, so there is nothing on this page to read, copy or leak.
+ */
+async function loadAuthMethods(){
+  try{
+    const methods=await fetch('/api/auth/methods').then(r=>r.json());
+    if(!methods.demo_login)return;
+    $('demoRow').hidden=false;
+    $('demoRow').querySelectorAll('.demoButton').forEach(button=>{button.onclick=()=>demoSignIn(button)});
+  }catch{/* a demo is a convenience; the form is the product */}
+}
+
+async function demoSignIn(button){
+  const message=$('authMessage');
+  button.disabled=true;message.textContent='';message.style.color='';
+  try{
+    const response=await fetch('/api/auth/demo-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:button.dataset.role})});
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||'Demo sign-in failed');
+    setToken(result.access_token);
+    $('authModal').hidden=true;
+    await loadAccount();
+  }catch(error){
+    message.textContent=error.message;
+    message.style.color='#fda4af';
+  }finally{button.disabled=false}
+}
+
 async function verifyFromLink(){const token=new URLSearchParams(location.search).get('verify');if(!token)return;history.replaceState({},'',location.pathname);const r=await fetch('/api/auth/verify-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}),j=await r.json();if(r.ok){setToken(j.access_token);status('Email verified. Your 7-day trial is active.');loadAccount()}else{openAuth();$('authMessage').textContent=j.error}}
 async function verifyPaymentReturn(){const p=new URLSearchParams(location.search),reference=p.get('reference');if(p.get('payment')!=='return'||!reference)return;history.replaceState({},'',location.pathname);if(!accessToken)return openAuth();status('Confirming Paystack payment…');try{const r=await apiFetch('/api/payments/paystack/verify/'+encodeURIComponent(reference)),j=await r.json();if(!r.ok)throw Error(j.error||'Payment verification failed');if(j.status==='success'){status('Payment confirmed. '+((j.kind==='topup')?'Credits added to your balance.':'Live Pro is active.'));await loadAccount()}else status('Payment is '+j.status+'. Your plan has not been changed.',true)}catch(e){status(e.message,true)}}
-loadAccount();verifyFromLink();verifyPaymentReturn();
+loadAccount();verifyFromLink();verifyPaymentReturn();loadAuthMethods();
 let media=null,pc=null,session=null,running=false,statsTimer=null,reconnects=0;
 let recorder=null,recordedChunks=[],recordUrl=null,recordedBlob=null,recordStarted=0,recordTimer=null;
 let cameraFacing='user',micStream=null,wakeLock=null,deferredInstall=null;

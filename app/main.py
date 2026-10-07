@@ -26,6 +26,7 @@ import json, time, uuid
 from app.engines import create_engine
 from app.sessions import SessionStore
 import app.admin as admin
+import app.demo as demo
 from app.rtc import LatestFrameProcessor, ProcessedVideoTrack, peers
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -61,6 +62,10 @@ class CallJoinRequest(CallRequest):
 class AuthRequest(BaseModel):
     email: str
     password: str
+
+
+class DemoLoginRequest(BaseModel):
+    role: str = "user"
 
 
 class ConsentRequest(BaseModel):
@@ -105,6 +110,28 @@ def report_proxy_trust():
             "(PUBLIC_URL=%s). If a reverse proxy sits in front, every caller shares one "
             "rate-limit bucket and cannot be told apart. Set FORWARDED_ALLOW_IPS to the "
             "proxy address or network.", allowed, settings.public_url)
+
+
+@app.on_event("startup")
+def prepare_demo_logins():
+    """Seed the one-click demo accounts, and say out loud that they exist.
+
+    A warning rather than a quiet log line, for the same reason the signing-key one is: the
+    application works perfectly either way, so nothing else would tell you.
+    """
+    if not settings.demo_login:
+        return
+    reason = demo.refusal_reason()
+    if reason:
+        logging.getLogger("uvicorn.error").error(reason)
+        return
+    created = demo.ensure_accounts()
+    logging.getLogger("uvicorn.error").warning(
+        "One-click demo sign-in is ON: anyone who can reach this server can sign in as %s. "
+        "%s Never enable this on a deployment that holds real accounts.",
+        " and ".join(demo.ACCOUNTS.values()),
+        ("Created " + ", ".join(created) + ".") if created else "Accounts already present.",
+    )
 
 
 @app.on_event("startup")
@@ -254,6 +281,46 @@ def auth_resend(request: EmailRequest, background_tasks: BackgroundTasks):
     if user and not user["email_verified_at"]:
         background_tasks.add_task(send_verification,user["email"],issue_email_token(user["id"]))
     return {"ok":True,"message":"If an unverified account exists, a new link has been sent."}
+
+
+@app.get("/api/auth/methods")
+def auth_methods():
+    """What this installation offers on its login card.
+
+    The pages ask rather than assume, so the one-click buttons cannot outlive the flag that
+    creates them: turn the flag off, restart, and the row is gone from a page that was never
+    rebuilt.
+    """
+    on = demo.enabled()
+    return {"password": True, "demo_login": on, "demo_roles": list(demo.ROLES) if on else []}
+
+
+@app.post("/api/auth/demo-login")
+def auth_demo_login(request: DemoLoginRequest):
+    """Sign in as a seeded demo account, without a password.
+
+    There is no credential to publish: this mints the session directly, which is the whole
+    convenience being asked for. With the flag off the route answers 404 rather than 403 —
+    an installation that does not have demo sign-in should not appear to have it disabled.
+    That is also why the flag is checked before the role: a probe naming a role that does
+    not exist must get the same 404, not a 400 that confirms the route is there. A body
+    with no role at all gets the demo customer, never the administrator.
+    """
+    try:
+        user = demo.sign_in(request.role)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except PermissionError:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    except LookupError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=409)
+    token = access_token(user)
+    response = JSONResponse({"access_token": token, "token_type": "bearer",
+                             "expires_in": settings.access_token_ttl, "user": user})
+    response.set_cookie("eidomira_access_token", token, max_age=settings.access_token_ttl,
+                        httponly=True, secure=settings.public_url.startswith("https://"),
+                        samesite="lax", path="/")
+    return response
 
 
 @app.get("/api/auth/me")

@@ -269,6 +269,11 @@
     <input id="authPassword" type="password" placeholder="Password · 10+ characters" required minlength="10" autocomplete="new-password">
     <button class="btn btn--primary" id="authSubmit" type="submit">Create account</button>
     <button class="authSwitch" id="authSwitch" type="button">Already registered? Sign in</button>
+    <div class="demoRow" id="demoRow" hidden>
+      <span>Demo access</span>
+      <button type="button" class="demoButton" data-role="user">Sign in as demo user</button>
+      <button type="button" class="demoButton" data-role="admin">Sign in as admin</button>
+    </div>
     <div class="authMessage" id="authMessage" role="status" aria-live="polite"></div>
   </form>
 </div>
