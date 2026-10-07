@@ -5,7 +5,7 @@ build machine with no accelerator at all, which is where they would otherwise ro
 """
 import pytest
 
-from app.engines.providers import (
+from app.providers import (
     CPU_PROVIDER,
     describe_providers,
     is_accelerated,
@@ -87,7 +87,7 @@ def test_acceleration_flag():
 
 
 def test_resolution_is_cached_and_reports_a_real_list():
-    from app.engines.providers import execution_providers
+    from app.providers import execution_providers
 
     first = execution_providers()
     assert first and first[-1] == CPU_PROVIDER or CUDA in first, first

@@ -3,7 +3,7 @@ import time
 import cv2
 import numpy as np
 from .base import Enrollment, FaceSwapEngine, FrameResult
-from .providers import describe_providers, execution_providers
+from app.providers import describe_providers, execution_providers
 from app.config import settings
 from app.compositor import SemanticCompositor
 

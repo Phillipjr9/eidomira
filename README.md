@@ -200,6 +200,47 @@ repository** — `models/` holds only the MediaPipe bundle behind the on-device 
 INSwapper weights are non-commercial, so what may be shipped is a licensing question that
 comes before any hardware decision.
 
+### Measuring output quality
+
+Whether a composite looks real is not something to assert in a README. It is something to
+measure, and `tools/quality_report.py` does, from frame pairs alone:
+
+```bash
+python -m tools.quality_report --pair original.png swapped.png
+python -m tools.quality_report --pair a1.png b1.png --pair a2.png b2.png --json
+```
+
+| Signal | What it catches |
+| --- | --- |
+| `seam_ratio` | A discontinuity on the edge of the composited region. 1.0 means the boundary is no sharper than the texture it sits in. |
+| `colour` | Distance between the composited region's colour and the skin immediately around it — a face pasted from a differently lit source. |
+| `flicker` | Frame-to-frame instability of the region, *net of real motion*, because motion moves the original frames too. Give it two or more pairs to get this. |
+
+The metrics are themselves tested against cases with known answers: a known 25-level colour
+offset comes back as a distance of 43.9 (25×√3), a hard cut scores roughly 5× the seam of a
+feathered one, and added jitter shows up while a travelling subject does not.
+
+Three findings from building it, all silent in the old code:
+
+- **`PROTECTED_OCCLUDERS` was declared and never read.** The morphological close that removes
+  mask speckle also filled straight over parsed glasses, hair and jewellery, compositing the
+  swapped face on top of them.
+- **`parser_include_ears: false` did nothing** for the same reason: the close refilled the ears.
+- **A parser emitting probabilities or single-channel logits produced an empty mask.**
+  `astype(np.uint8)` collapses values in `[0, 1]` to zero and wraps negative logits into
+  garbage class ids. Nothing raised; `blend()` simply returned the original frame and the
+  swap silently did nothing.
+
+Blending also rounded where it used to truncate. Truncation biased every blended pixel down by
+up to one level, which the feedback in the temporal stabiliser turned into a residue that
+never cleared — a frame returning to its true value settled one level short of it and stayed
+there. And the stabiliser is now reset on any frame that did not actually produce a swapped
+face, instead of blending the last swapped face back over it.
+
+None of this has been seen running against a real swap, because there are no weights to run
+it against. The metrics exist so that when there are, the claim is checked rather than
+believed.
+
 ## Important MVP limitation
 
 Direct peer-to-worker WebRTC is implemented for the MVP. Before a high-concurrency launch, add a production TURN service and regional SFU/gateway rather than terminating every public peer directly on GPU workers. The current scheduler deliberately drops stale frames instead of accumulating latency, but GPU admission control is still required for multiple simultaneous neural sessions.

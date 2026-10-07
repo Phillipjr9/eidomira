@@ -54,23 +54,27 @@ class SlowStabilizer:
     """Replaces the real stabiliser so its share of the frame has a known size."""
 
     def __init__(self, *args, **kwargs):
-        pass
+        self.resets = 0
 
     def apply(self, input_rgb, output_rgb):
         time.sleep(STABILIZER_MS / 1000)
         return output_rgb
 
+    def reset(self):
+        self.resets += 1
+
 
 class FakeTrack:
-    def __init__(self, count):
+    def __init__(self, count, fill=0):
         self.count = count
+        self.fill = fill
         self.sent = 0
 
     async def recv(self):
         if self.sent >= self.count:
             await asyncio.sleep(3600)  # a real track block; the processor cancels it
         frame = av.VideoFrame.from_ndarray(
-            np.zeros((180, 320, 3), dtype=np.uint8), format="rgb24"
+            np.full((180, 320, 3), self.fill, dtype=np.uint8), format="rgb24"
         )
         frame.pts = self.sent
         self.sent += 1
@@ -194,3 +198,115 @@ def test_liveness_phase_still_emits_frames_but_is_not_measured(monkeypatch):
     assert channel.of_type("liveness"), "no liveness challenge was sent"
     assert observed == [0.0], "a liveness frame was fed to the controller"
     assert channel.of_type("metrics"), "the frame was not emitted at all"
+
+
+# ───────────── a frame that swapped nothing must not inherit the last face ─────────────
+
+SWAP_PATCH = (slice(40, 60), slice(40, 60))
+FILL = 255
+
+
+class SequenceEngine:
+    """Swaps on the frames its plan says, and reports no face on the others."""
+
+    name = "inswapper"
+
+    def __init__(self, plan):
+        self.plan = list(plan)
+        self.calls = 0
+        self.swaps = 0
+
+    def process(self, rgb, identity, verified):
+        swap, found = self.plan[min(self.calls, len(self.plan) - 1)]
+        self.calls += 1
+        image = rgb.copy()
+        if swap:
+            image[SWAP_PATCH] = 0            # an unmistakable swapped face
+            self.swaps += 1
+        return FrameResult(image, found, verified, 5.0)
+
+    def verify_self(self, rgb, identity):
+        return True, 0.9
+
+    def observe_liveness(self, rgb):
+        return True, 0.0
+
+
+class PacedTrack(FakeTrack):
+    """Paces delivery so the one-slot queue drops nothing while we are watching.
+
+    The scene is deliberately constant. A brightness change would move the stabiliser's
+    motion map to zero weight and hide the very behaviour under test: the ghost appears
+    when the person stays still and a face detection drops out.
+    """
+
+    def __init__(self, count, interval=.05, fill=FILL):
+        super().__init__(count, fill=fill)
+        self.interval = interval
+
+    async def recv(self):
+        if self.sent >= self.count:
+            await asyncio.sleep(3600)
+        await asyncio.sleep(self.interval)
+        frame = av.VideoFrame.from_ndarray(
+            np.full((180, 320, 3), self.fill, dtype=np.uint8), format="rgb24"
+        )
+        frame.pts = self.sent
+        self.sent += 1
+        return frame
+
+
+async def collect_frames(engine, monkeypatch, count, stabilizer=None):
+    """Run the real stabiliser and hand back the frames the client would receive."""
+    monkeypatch.setattr(rtc, "MotionAwareStabilizer", stabilizer or rtc.MotionAwareStabilizer)
+    session = Session("session-1", identity=object(), verified=True)
+    processor = rtc.LatestFrameProcessor(PacedTrack(count), engine, session)
+    frames = []
+    try:
+        for _ in range(count):
+            try:
+                frame = await asyncio.wait_for(processor.recv(), timeout=3)
+            except asyncio.TimeoutError:
+                break
+            frames.append(frame.to_ndarray(format="rgb24").copy())
+    finally:
+        await processor.stop()
+        await asyncio.sleep(0)
+    return frames
+
+
+def test_a_swapped_frame_really_is_swapped(monkeypatch):
+    """Guards the test below: if nothing was swapped, it could not detect a ghost."""
+    engine = SequenceEngine([(True, True)])
+    frames = asyncio.run(collect_frames(engine, monkeypatch, 1))
+    assert engine.swaps >= 1, "the swap path never ran"
+    assert frames and frames[-1][SWAP_PATCH].max() == 0, "the fake engine did not swap after all"
+
+
+def test_a_frame_with_no_face_is_passed_through_untouched(monkeypatch):
+    """The bug: the last swapped face was blended back over a frame that had none.
+
+    The blend feeds its own output forward, so the ghost did not fade -- it settled just
+    short of the true value and stayed there for every following frame. On a constant
+    scene at 22% strength the patch settles around 199 instead of 255.
+    """
+    engine = SequenceEngine([(True, True), (False, False)])
+    frames = asyncio.run(collect_frames(engine, monkeypatch, 2))
+
+    assert engine.swaps >= 1, "the sequence never swapped anything, so nothing was proven"
+    assert len(frames) == 2, "the paced track should have delivered both frames"
+    assert frames[0][SWAP_PATCH].max() == 0, "the first frame should be the swapped one"
+
+    last = frames[-1]
+    assert (last == FILL).all(), (
+        f"a frame with no face was altered: patch reads {int(last[SWAP_PATCH].max())}, "
+        f"expected {FILL}"
+    )
+
+
+def test_the_stabiliser_is_cleared_when_a_frame_is_not_swapped(monkeypatch):
+    """Reset, not just skipped: history would otherwise colour the next swapped frame."""
+    engine = SequenceEngine([(True, True), (False, False), (True, True)])
+    frames = asyncio.run(collect_frames(engine, monkeypatch, 3))
+    assert len(frames) == 3
+    assert int(frames[2][SWAP_PATCH].max()) == 0, "the third frame should be swapped afresh"

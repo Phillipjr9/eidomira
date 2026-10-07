@@ -67,6 +67,7 @@ class LatestFrameProcessor:
                 frame = await self.input.get()
                 started = time.monotonic()
                 steady_state = False
+                face_found = False
                 rgb = frame.to_ndarray(format="rgb24")
                 # Diagnostic mode validates transport and must preserve the camera feed.
                 # Neural mode may adapt resolution to prevent latency accumulation.
@@ -114,7 +115,14 @@ class LatestFrameProcessor:
                     steady_state = True
 
                 if self.engine.name != "diagnostic":
-                    result_rgb = self.stabilizer.apply(rgb, result_rgb)
+                    # Blend only a frame that really produced a swapped face. Blending an
+                    # untouched frame with the previous stabilised output paints the last
+                    # swapped face back over it, and because the blend feeds its own output
+                    # forward, the residue then holds instead of fading.
+                    if steady_state and face_found:
+                        result_rgb = self.stabilizer.apply(rgb, result_rgb)
+                    else:
+                        self.stabilizer.reset()
                 output = av.VideoFrame.from_ndarray(result_rgb, format="rgb24")
                 output.pts = frame.pts
                 output.time_base = frame.time_base or Fraction(1, 90000)

@@ -1,11 +1,11 @@
-"""ONNX Runtime execution provider selection for the neural adapters.
+"""ONNX Runtime execution provider selection for every neural adapter.
 
-The adapter previously hardcoded ``["CUDAExecutionProvider", "CPUExecutionProvider"]``,
+The adapters previously hardcoded ``["CUDAExecutionProvider", "CPUExecutionProvider"]``,
 which means any host that has ROCm, DirectML, CoreML, OpenVINO or TensorRT installed
 silently fell through to the CPU path and just looked slow, with nothing in the logs or
 the health endpoint to explain why.
 
-This module asks ONNX Runtime what the host actually exposes, orders it by expected
+Both the swap adapter and the face parser ask ONNX Runtime what the host exposes, orders it by expected
 throughput, and always keeps a CPU path last so inference can never fail outright.
 
 TensorRT is deliberately opt-in (``EIDOMIRA_TENSORRT=1``): it builds an engine on first
