@@ -1,14 +1,17 @@
 {
   "name": "Eidomira Live",
   "short_name": "Eidomira",
-  "description": "Consensual real-time neural identity studio",
+  "description": "Consent-first live identity transformation for video, voice and characters.",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#07070d",
-  "theme_color": "#090811",
+  "background_color": "#08080d",
+  "theme_color": "#08080d",
+  "categories": ["video", "photo", "productivity"],
   "icons": [
-    {"src": "/static/eidomira-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

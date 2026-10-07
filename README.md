@@ -54,6 +54,31 @@ A clean production-oriented rebuild for consensual, self-only real-time face tra
 - Optional InsightFace/InSwapper adapter
 - NVIDIA Docker and RunPod deployment configuration
 
+## Public landing page
+
+`static/index.html` is the marketing page. It is self-contained, dependency-free, and
+ships as static files: `landing.css` (design system + sections + motion), `landing.js`
+(interactions), `fonts.css` + `static/fonts/*.woff2` (self-hosted Instrument Serif,
+Inter Tight, JetBrains Mono — no third-party requests, so `style-src 'self'` holds).
+
+Design notes:
+
+- Dark editorial art direction: 8px baseline rhythm, one accent gradient (violet → cyan),
+  serif italic display contrast against a tight grotesk.
+- Motion: word-by-word hero reveal, rAF scroll progress, eased cursor spotlight,
+  pointer tilt on specimens, image-wipe on hover, sticky scroll-spy steps, sliding
+  toolkit tabs, drag/arrow use-case rail, count-up stats, height-animated FAQ,
+  magnetic primary buttons, live canvas signal trace in the hero monitor.
+- Every animation is disabled or reduced under `prefers-reduced-motion`, the hero
+  gallery is illustrative (no real faces), and the page states plainly that it is a
+  preview rather than a live feed.
+- The hero monitor is a styled illustration of the Studio; telemetry values are
+  illustrative, not measured.
+
+`/` and `/static/*` are embeddable (no session state, no credentials) so the marketing
+page can be hosted in previews, docs and product embeds. `/app` and `/api/*` keep
+`X-Frame-Options: SAMEORIGIN` and `frame-ancestors 'self'`.
+
 ## Local UI/transport test
 
 ```bash
