@@ -42,4 +42,11 @@ async def security_headers_middleware(request: Request, call_next):
 
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    elif response.headers.get("content-type", "").startswith("text/html") or \
+            request.url.path.startswith("/static/"):
+        # Revalidate rather than reuse. Without this a browser is entitled to serve a page or
+        # its script from its own cache without asking, which is how a change that is live on
+        # the server stays invisible in a tab that was already open. ETags still turn the
+        # revalidation into a 304, so this costs a round trip, not a download.
+        response.headers["Cache-Control"] = "no-cache"
     return response

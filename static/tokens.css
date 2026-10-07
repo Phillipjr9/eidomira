@@ -442,6 +442,10 @@ body.has-pointer .fx-spot { opacity: 1; }
 }
 .demoButton {
   flex: 1 1 46%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
   padding: 10px 12px;
   border-radius: var(--r-sm);
   border: 1px dashed var(--line-strong);
@@ -452,6 +456,9 @@ body.has-pointer .fx-spot { opacity: 1; }
   cursor: pointer;
   transition: border-color 0.2s var(--ease), color 0.2s var(--ease);
 }
+.demoButton b { font-weight: 600; }
+.demoButton code { font-family: var(--mono); font-size: 10.5px; color: var(--paper-3); }
+.demoButton code:empty { display: none; }
 .demoButton:hover { border-color: var(--cyan-soft); color: var(--paper); }
 .demoButton:disabled { opacity: 0.5; cursor: default; }
 

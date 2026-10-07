@@ -14,7 +14,7 @@ from aiortc import RTCPeerConnection, RTCSessionDescription
 from app.config import DEVELOPMENT_AUTH_SECRET, settings
 from app.ice import rtc_configuration
 from app.calls import create_room_name, create_call_token
-from app.security import register, authenticate, access_token, optional_user, authenticated_user, require_admin, issue_email_token, verify_email_token
+from app.security import register, authenticate, access_token, optional_user, require_admin, issue_email_token, verify_email_token
 from app.database import database
 from app.mailer import send_verification
 from app.billing import PLAN, TOOLS, create_trial, account as billing_account, quote as billing_quote
@@ -203,7 +203,25 @@ def lab():
 
 
 @app.get("/app")
-def private_app(user=Depends(authenticated_user)):
+def private_app(request: Request, user=Depends(optional_user)):
+    """The private workspace — and, signed out, the way to the door rather than a wall.
+
+    Every "Open Studio" link on the marketing page lands here, so answering a browser with a
+    bare 401 is how a visitor concludes there is no way in: the login card is on `/`, and
+    nothing here said so. A request that asks for HTML is therefore sent to the card with the
+    sign-in form already open. Nothing private is served either way — the shell is public at
+    /static/app.html, and every byte of data behind it still needs the session — and no API
+    client is affected: a request that does not ask for HTML gets the same 401 with the same
+    body it always did.
+
+    One limitation worth stating: with `STUDIO_REQUIRE_AUTH=1` the session check runs inside
+    the dependency, which refuses before this function is reached, so the redirect does not
+    apply. That setting exists for installations putting a real front door in front.
+    """
+    if user["id"] == "local-guest":
+        if "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse("/?signin=1", status_code=302)
+        raise HTTPException(401, "Authentication required")
     return FileResponse(ROOT / "static" / "app.html")
 
 
@@ -292,7 +310,17 @@ def auth_methods():
     rebuilt.
     """
     on = demo.enabled()
-    return {"password": True, "demo_login": on, "demo_roles": list(demo.ROLES) if on else []}
+    return {
+        "password": True,
+        "demo_login": on,
+        "demo_roles": list(demo.ROLES) if on else [],
+        # The addresses, so the card can show which account each button opens. Empty when the
+        # flag is off, so a page can never display a demo account that does not exist — and
+        # they are addresses only: the passwords are random and appear nowhere, which is why
+        # the button asks for a session instead of filling the form in.
+        "demo_accounts": ([{"role": role, "email": email} for role, email in demo.ACCOUNTS.items()]
+                          if on else []),
+    }
 
 
 @app.post("/api/auth/demo-login")

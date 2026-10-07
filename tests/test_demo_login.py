@@ -69,6 +69,7 @@ def test_the_route_does_not_exist_until_somebody_enables_it(isolated_db):
         methods = client.get("/api/auth/methods").json()
         assert methods["demo_login"] is False
         assert methods["demo_roles"] == []
+        assert methods["demo_accounts"] == [], "a disabled demo must not name its accounts"
 
 
 def client_get_method_not_allowed() -> int:
@@ -120,9 +121,31 @@ def test_the_login_cards_ship_the_demo_row_hidden():
         assert "hidden" in row.group(0), f"{name} ships the demo row visible"
 
 
+def test_the_card_learns_the_addresses_from_the_server(demo_on):
+    """The card names the account behind each button, and it can only do that while the server
+    says the demo exists: the addresses are not written into the page, they arrive from the
+    API. So a page can never advertise a demo account that is not there, and turning the flag
+    off empties the row without anybody editing markup."""
+    with TestClient(app) as client:
+        methods = client.get("/api/auth/methods").json()
+
+    assert [a["role"] for a in methods["demo_accounts"]] == ["user", "admin"]
+    assert {a["email"] for a in methods["demo_accounts"]} == set(DEMO_EMAILS)
+    for name in ("app.html", "index.html"):
+        markup = (STATIC / name).read_text(encoding="utf-8")
+        # One fill target per button, plus the script that fills them: if the markup loses
+        # `data-email` the label would silently keep showing nothing.
+        assert markup.count("data-email") == 2, f"{name} has no place to show the address"
+    for name in ("app.js", "landing.js"):
+        script = (STATIC / name).read_text(encoding="utf-8")
+        assert "demo_accounts" in script, f"{name} never reads the addresses"
+
+
 def test_no_page_carries_a_demo_credential():
-    """The rule this feature exists to keep. If a future change ships the addresses, or a
-    password, this fails before the page does."""
+    """The rule this feature exists to keep, and its exact shape: no page *stores* an address
+    or a password. The addresses reach the card at run time, from an API that only offers them
+    while the demo is on; the passwords exist nowhere at all. If a future change writes either
+    into a file, this fails before a page does."""
     pages = page_text("app.html", "index.html", "app.js", "landing.js")
     for email in DEMO_EMAILS:
         assert email not in pages, f"{email} is written into a page"

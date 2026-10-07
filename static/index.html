@@ -883,9 +883,13 @@
     <button class="btn btn--primary" id="authSubmit" type="submit">Create account</button>
     <button class="authSwitch" id="authSwitch" type="button">Already registered? Sign in</button>
     <div class="demoRow" id="demoRow" hidden>
-      <span>Demo access</span>
-      <button type="button" class="demoButton" data-role="user">Sign in as demo user</button>
-      <button type="button" class="demoButton" data-role="admin">Sign in as admin</button>
+      <span>Demo access · one click, no password</span>
+      <button type="button" class="demoButton" data-role="user">
+        <b>Sign in as demo user</b><code data-email></code>
+      </button>
+      <button type="button" class="demoButton" data-role="admin">
+        <b>Sign in as admin</b><code data-email></code>
+      </button>
     </div>
     <div class="authMessage" id="authMessage" role="status" aria-live="polite"></div>
   </form>

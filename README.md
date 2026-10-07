@@ -633,16 +633,35 @@ before the password because that is the only ordering that slows guessing down. 
 
 **One-click demo sign-in is a flag, and it will not run on https.** Setting
 `STUDIO_DEMO_LOGIN=1` puts two buttons on the login card — a customer and an administrator
-— that open a seeded account without a password. Nothing is published to make that work:
-the passwords are random, appear in no file, and are never shown, because the button mints
-a session rather than typing a credential. The addresses are `demo@eidomira.test` and
-`admin@eidomira.test`; the `.test` domain is reserved by RFC 2606, so they cannot collide
-with a customer or receive mail. Setting the flag while `STUDIO_PUBLIC_URL` is `https://`
+— that open a seeded account without a password. Each button names the account it opens
+(`demo@eidomira.test`, `admin@eidomira.test`); the addresses arrive from
+`/api/auth/methods` at run time, so the card cannot advertise an account that does not
+exist. No *password* is published anywhere — they are random strings that exist in no file
+and are never shown — because the button mints a session instead of typing a credential, and
+a password printed on a public page would be a real account anyone could walk into. The
+`.test` domain is reserved by RFC 2606, so the addresses cannot collide with a customer or
+receive mail. Setting the flag while `STUDIO_PUBLIC_URL` is `https://`
 turns the feature **off, not on** — an administrator account one click from a public page
 is the thing nobody means to ship — and the server logs the reason at startup. The accounts
 are ordinary accounts: they are created on first use with a verified address and the normal
 100-credit trial, they appear in the owner console marked as demo, and hiding the buttons
 (`STUDIO_DEMO_LOGIN=0`) does not delete them.
+
+**A signed-out browser is sent to the login card rather than shown a 401.** Every "Open
+Studio" link lands on `/app`, which needs a session; answering a browser with a bare 401 is
+how a visitor concludes there is no way in, because the card lives on `/` and nothing said
+so. A request that asks for HTML is now redirected to `/?signin=1`, which opens the card on
+arrival; a request that does not (`curl`, an API client) still gets the same 401 with the
+same body. Nothing private moves either way — the shell has always been readable at
+`/static/app.html`, and every byte of data behind it still needs the session. With
+`STUDIO_REQUIRE_AUTH=1` the check runs inside the dependency instead, so no redirect happens
+there; that setting exists for installations putting a real front door in front.
+
+**Pages and scripts are revalidated, not reused.** They are served with `Cache-Control:
+no-cache`, so a browser asks before using its copy and an ETag usually answers 304. Without
+it a browser is entitled to invent a freshness lifetime, which is how a change that is live
+on the server stays invisible in a tab that was open across the deploy — and looks exactly
+like a change that did not work.
 
 **A proxy must be declared, or rate limiting degrades silently.** uvicorn only rewrites the
 peer address from `X-Forwarded-For` for proxies listed in `FORWARDED_ALLOW_IPS`

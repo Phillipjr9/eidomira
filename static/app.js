@@ -5,7 +5,7 @@ function apiFetch(url,options={}){const headers=new Headers(options.headers||{})
 function setToken(token){accessToken=token||'';if(token)localStorage.setItem('eidomira_access_token',token);else localStorage.removeItem('eidomira_access_token')}
 let authMode='register';
 async function loadAccount(){if(!accessToken){location.replace('/?signin=1');return}try{const me=await apiFetch('/api/auth/me').then(r=>{if(!r.ok)throw Error();return r.json()});$('accountBtn').textContent='Account';$('accountBar').hidden=false;$('accountEmail').textContent=me.email;$('adminLink').hidden=me.role!=='admin';const billing=await apiFetch('/api/billing/account').then(r=>r.json());$('accountPlan').textContent=(billing.subscription?.plan||'NO PLAN').toUpperCase();renderWallet(billing,me)}catch{setToken('');location.replace('/?signin=1')}}
-function openAuth(){authMode='register';renderAuth();$('authModal').hidden=false}
+function openAuth(mode){authMode=mode==='login'?'login':'register';renderAuth();$('authModal').hidden=false}
 function renderAuth(){$('authTitle').textContent=authMode==='register'?'Start your free trial':'Welcome back';$('authCopy').textContent=authMode==='register'?'Verify your email to receive 100 credits for 7 days. No card required.':'Sign in to your Eidomira account.';$('authSubmit').textContent=authMode==='register'?'Create account':'Sign in';$('authSwitch').textContent=authMode==='register'?'Already registered? Sign in':'New to Eidomira? Start free trial';$('authPassword').autocomplete=authMode==='register'?'new-password':'current-password';$('authMessage').textContent=''}
 $('accountBtn').onclick=()=>accessToken?$('accountBar').toggleAttribute('hidden'):openAuth();$('authClose').onclick=()=>$('authModal').hidden=true;$('authSwitch').onclick=()=>{authMode=authMode==='register'?'login':'register';renderAuth()};$('logoutBtn').onclick=async()=>{try{await fetch('/api/auth/logout',{method:'POST'})}catch{}setToken('');location.href='/'};
 async function startCheckout(product){if(!accessToken)return openAuth();try{const r=await apiFetch('/api/payments/paystack/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product})}),j=await r.json();if(!r.ok)throw Error(j.error||'Checkout unavailable');location.href=j.authorization_url}catch(e){status(e.message,true)}}
@@ -86,8 +86,13 @@ async function loadAuthMethods(){
   try{
     const methods=await fetch('/api/auth/methods').then(r=>r.json());
     if(!methods.demo_login)return;
+    const accounts=methods.demo_accounts||[];
+    $('demoRow').querySelectorAll('.demoButton').forEach(button=>{
+      const account=accounts.find(a=>a.role===button.dataset.role);
+      if(account)button.querySelector('[data-email]').textContent=account.email;
+      button.onclick=()=>demoSignIn(button);
+    });
     $('demoRow').hidden=false;
-    $('demoRow').querySelectorAll('.demoButton').forEach(button=>{button.onclick=()=>demoSignIn(button)});
   }catch{/* a demo is a convenience; the form is the product */}
 }
 
@@ -110,6 +115,7 @@ async function demoSignIn(button){
 async function verifyFromLink(){const token=new URLSearchParams(location.search).get('verify');if(!token)return;history.replaceState({},'',location.pathname);const r=await fetch('/api/auth/verify-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}),j=await r.json();if(r.ok){setToken(j.access_token);status('Email verified. Your 7-day trial is active.');loadAccount()}else{openAuth();$('authMessage').textContent=j.error}}
 async function verifyPaymentReturn(){const p=new URLSearchParams(location.search),reference=p.get('reference');if(p.get('payment')!=='return'||!reference)return;history.replaceState({},'',location.pathname);if(!accessToken)return openAuth();status('Confirming Paystack payment…');try{const r=await apiFetch('/api/payments/paystack/verify/'+encodeURIComponent(reference)),j=await r.json();if(!r.ok)throw Error(j.error||'Payment verification failed');if(j.status==='success'){status('Payment confirmed. '+((j.kind==='topup')?'Credits added to your balance.':'Live Pro is active.'));await loadAccount()}else status('Payment is '+j.status+'. Your plan has not been changed.',true)}catch(e){status(e.message,true)}}
 loadAccount();verifyFromLink();verifyPaymentReturn();loadAuthMethods();
+if(new URLSearchParams(location.search).get('signin')){history.replaceState({},'',location.pathname);openAuth('login');}
 let media=null,pc=null,session=null,running=false,statsTimer=null,reconnects=0;
 let recorder=null,recordedChunks=[],recordUrl=null,recordedBlob=null,recordStarted=0,recordTimer=null;
 let cameraFacing='user',micStream=null,wakeLock=null,deferredInstall=null;

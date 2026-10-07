@@ -154,10 +154,13 @@
       try {
         const methods = await fetch("/api/auth/methods").then((r) => r.json());
         if (!methods.demo_login || !el.demoRow) return;
-        el.demoRow.hidden = false;
+        const accounts = methods.demo_accounts || [];
         el.demoRow.querySelectorAll(".demoButton").forEach((button) => {
+          const account = accounts.find((a) => a.role === button.dataset.role);
+          if (account) button.querySelector("[data-email]").textContent = account.email;
           button.addEventListener("click", () => demoSignIn(button));
         });
+        el.demoRow.hidden = false;
       } catch {
         /* a demo is a convenience; the form is the product */
       }
@@ -178,7 +181,15 @@
     })
   );
 
-  if (new URLSearchParams(location.search).get("signin")) AUTH.open("login");
+  /* `/app` sends a signed-out browser back here with this flag instead of answering a bare
+     401, so the card it was asking for opens on arrival. Guarded on there being no session —
+     somebody who is already signed in is not locked out of anything — and the flag is dropped
+     from the URL so a reload does not reopen the card over them. */
+  if (new URLSearchParams(location.search).get("signin") &&
+      !localStorage.getItem("eidomira_access_token")) {
+    history.replaceState({}, "", location.pathname);
+    AUTH.open("login");
+  }
   AUTH.verifyEmail();
 
   /* ---------------------------------------------------------------------
