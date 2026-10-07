@@ -1,0 +1,18 @@
+# Coturn configuration for Eidomira. Replace public/private IP and secret.
+listening-port=3478
+tls-listening-port=5349
+fingerprint
+use-auth-secret
+static-auth-secret=REPLACE_WITH_64_RANDOM_CHARACTERS
+realm=turn.example.com
+server-name=turn.example.com
+external-ip=PUBLIC_IP/PRIVATE_IP
+min-port=49160
+max-port=49260
+no-multicast-peers
+no-cli
+no-loopback-peers
+stale-nonce
+# Configure cert and pkey for turns: TLS transport.
+cert=/etc/letsencrypt/live/turn.example.com/fullchain.pem
+pkey=/etc/letsencrypt/live/turn.example.com/privkey.pem

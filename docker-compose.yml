@@ -1,0 +1,17 @@
+services:
+  studio:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      STUDIO_BACKEND: inswapper
+      STUDIO_MODEL_PATH: /models/inswapper_128.onnx
+      STUDIO_PARSER_MODEL_PATH: /models/face_parser.onnx
+    volumes:
+      - ./licensed-models:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -1,0 +1,14 @@
+{
+  "name": "Eidomira Live",
+  "short_name": "Eidomira",
+  "description": "Consensual real-time neural identity studio",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#07070d",
+  "theme_color": "#090811",
+  "icons": [
+    {"src": "/static/eidomira-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}

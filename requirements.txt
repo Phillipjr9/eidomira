@@ -1,0 +1,12 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+python-multipart>=0.0.18,<1
+numpy>=1.26,<3
+opencv-python-headless>=4.10,<5
+pydantic-settings>=2.7,<3
+Pillow>=10,<13
+aiortc>=1.10,<2
+av>=14,<18
+PyJWT>=2.10,<3
+argon2-cffi>=23,<26
+prometheus-client>=0.21,<1

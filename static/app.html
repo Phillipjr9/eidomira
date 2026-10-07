@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Eidomira Live · Be present. Appear differently.</title>
+  <meta name="description" content="Consent-first live identity transformation for video, voice, avatars and calls.">
+  <meta name="theme-color" content="#eef8ff">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" type="image/png" href="/static/eidomira-icon.png">
+  <link rel="apple-touch-icon" href="/static/eidomira-icon.png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="ambient ambientA"></div><div class="ambient ambientB"></div>
+<div class="siteShell">
+  <header class="navWrap">
+    <a class="brand" href="#top"><img class="brandmark" src="/static/eidomira-icon.png" alt=""><span>EIDOMIRA <b>LIVE</b></span></a>
+    <nav class="desktopNav"><a href="#studio">Studio</a><a href="#suite">Tools</a><a href="#workflow">How it works</a><a href="#pricing">Pricing</a></nav>
+    <div class="headerActions"><div class="health"><i id="healthDot"></i><span id="healthText">Checking engine</span></div><button class="accountButton" id="accountBtn">Sign in</button><a class="navCta" href="#studio">Open studio <span>↗</span></a></div>
+  </header>
+
+  <div class="accountBar" id="accountBar" hidden><span id="accountEmail"></span><b id="accountPlan">TRIAL</b><strong><span id="creditBalance">0</span> credits</strong><button id="logoutBtn">Log out</button></div>
+
+  <main id="top">
+    <section class="hero">
+      <div class="heroCopy"><div class="eyebrow"><span>✦</span> CONSENT-FIRST IDENTITY ENGINE</div><h1>Be present.<br><em>Appear differently.</em></h1><p>Transform live video, voice, and digital characters in one beautifully simple studio—while keeping consent, liveness, and provenance built in.</p><div class="heroActions"><a class="primaryCta" href="#studio">Start creating <span>→</span></a><a class="secondaryCta" href="#suite"><i>▶</i> Explore the suite</a></div><div class="trustRow"><div><b>WebRTC</b><span>True live video</span></div><div><b>Self-only</b><span>Verified identity</span></div><div><b>Ephemeral</b><span>Private sessions</span></div></div></div>
+      <div class="heroVisual"><img src="/static/eidomira-hero-3d.png" alt="Abstract glass identity sculptures"><div class="floatCard floatOne"><i>◉</i><span><b>Live presence</b>Natural motion preserved</span></div><div class="floatCard floatTwo"><i>✦</i><span><b>Neural identity</b>One reference enrollment</span></div><div class="heroStatus"><span></span> READY FOR CAMERA</div></div>
+    </section>
+
+    <section class="proofStrip"><span>BUILT FOR</span><b>Live calls</b><i></i><b>Creator video</b><i></i><b>Talking avatars</b><i></i><b>Voice transformation</b><i></i><b>Streaming</b></section>
+
+    <section class="suiteSection" id="suite">
+      <div class="sectionIntro"><div><span class="pill">POWERFUL CREATOR SUITE</span><h2>Every way to transform.<br><em>One trusted workspace.</em></h2></div><p>Move from a live call to polished video, synchronized speech, or a new character without rebuilding your workflow.</p></div>
+      <div class="featureShowcase">
+        <article class="featureCard featurePrimary"><div class="featureArt miniLive"><div class="miniScreen"><span>LIVE</span><div class="orb">◉</div><small>30 FPS · VERIFIED</small></div></div><span class="featureNo">01 / LIVE</span><h3>Full Live Swap</h3><p>Continuous browser video with expressions, gaze, blinking, and head movement preserved.</p><a href="#studio">Launch live studio <b>→</b></a></article>
+        <article class="featureCard"><div class="featureArt waveform"><span></span><span></span><span></span><span></span><span></span><i>VOICE</i></div><span class="featureNo">02 / AUDIO</span><h3>Voice Studio</h3><p>Change, clone, and synchronize authorized voices with low-latency controls.</p><a href="#pricing">View access <b>→</b></a></article>
+        <article class="featureCard"><div class="featureArt splitArt"><img src="/static/eidomira-feature-3d.png" alt="Abstract identity transition"><div class="splitLine"><i>‹ ›</i></div></div><span class="featureNo">03 / VIDEO</span><h3>Video & Character Swap</h3><p>HD face and character transformation for clips up to three minutes.</p><a href="#workflow">See workflow <b>→</b></a></article>
+      </div>
+    </section>
+
+    <section class="studioSection" id="studio">
+      <div class="studioHeading"><div><span class="pill dark">EIDOMIRA LIVE STUDIO</span><h2>Your camera. A new presence.</h2><p>Enroll your own identity, complete a liveness check, and start the secure stream.</p></div><div class="studioMeta"><span>SESSION PRIVACY</span><b>Frames are not stored</b></div></div>
+      <nav class="progress"><div class="active" id="p1"><b>01</b><span>Identity<small>Enroll a reference</small></span></div><div id="p2"><b>02</b><span>Camera<small>Verify presence</small></span></div><div id="p3"><b>03</b><span>Transform<small>Start output</small></span></div></nav>
+      <div class="studioGrid">
+        <div class="studioControls">
+          <section class="identity"><div class="sectionHead"><div><span class="microLabel">YOUR IDENTITY</span><h3>Who will appear?</h3></div><button class="textButton" id="resetBtn">Reset</button></div>
+            <label class="uploadCard" id="uploadCard"><input type="file" id="source" accept="image/*"><div class="uploadIcon">↑</div><strong>Upload your portrait</strong><span>Front-facing · well-lit · one person</span><img id="sourcePreview" alt="Reference preview"></label>
+            <div class="qualityPick"><span>QUALITY</span><label><input type="radio" name="quality" value="speed"><b>Speed</b><small>Fastest</small></label><label><input type="radio" name="quality" value="balanced" checked><b>Balanced</b><small>Recommended</small></label><label><input type="radio" name="quality" value="quality"><b>Quality</b><small>Detailed</small></label></div>
+            <label class="consent"><input type="checkbox" id="consent"><span><b>Self-only consent</b>I confirm this is my own face and consent to processing for this session.</span></label>
+            <button class="button primary" id="enrollBtn">Enroll identity <b>→</b></button><div class="status" id="status">Choose a reference portrait to begin.</div>
+          </section>
+          <div class="safetyList"><div><i>✓</i><span><b>Active liveness</b>Blocks static-photo impersonation.</span></div><div><i>✓</i><span><b>Ephemeral identity</b>Session state expires automatically.</span></div><div><i>✓</i><span><b>Synthetic provenance</b>Disclosure remains embedded.</span></div></div>
+        </div>
+        <div class="videoWorkspace">
+          <div class="videoHeader"><div><span class="microLabel">LIVE CANVAS</span><b>Original and transformed</b></div><div class="videoLegend"><span><i class="cameraDot"></i> Camera</span><span><i class="neuralDot"></i> Neural output</span></div></div>
+          <div class="studio">
+            <div class="stage"><div class="stageTop"><span>ORIGINAL</span><span class="badge off" id="cameraBadge">OFFLINE</span></div><div class="viewport"><video id="video" autoplay muted playsinline></video><div class="empty" id="cameraEmpty"><div class="cameraIcon">◉</div><strong>Your camera is off</strong><span>Access begins only when you press Start</span></div></div><button class="button ghost wide" id="cameraBtn">Start camera <b>→</b></button></div>
+            <div class="stage output"><div class="stageTop"><span>TRANSFORMED · SYNTHETIC</span><span class="badge" id="outputBadge">WAITING</span></div><div class="viewport"><video id="output" autoplay muted playsinline></video><div class="livenessPrompt" id="livenessPrompt"><span>LIVE CHECK</span><strong id="livenessText">Look directly at the camera</strong><div><i id="livenessBar"></i></div></div><div class="empty" id="outputEmpty"><div class="spark">✦</div><strong>Your transformation appears here</strong><span>Enroll an identity and connect your camera</span></div><canvas id="capture" hidden></canvas></div><div class="outputActions"><button class="button primary" id="goBtn" disabled><span>✦</span> Start transformation</button><button class="button ghost" id="recordBtn" disabled>● Record</button><button class="button ghost" id="cleanBtn" disabled>Clean</button></div><a id="recordDownload" class="downloadClip" hidden>Download clip</a></div>
+          </div>
+          <div class="mobileTools"><label><input id="recordMic" type="checkbox"> Include microphone</label><button id="flipBtn" disabled>↻ Flip camera</button><button id="shareBtn" hidden>Share clip</button><button id="installBtn" hidden>Install app</button></div>
+          <section class="telemetry"><div><span>ENGINE</span><b id="engineName">—</b></div><div><span>LATENCY</span><b id="latency">— ms</b></div><div><span>STREAM</span><b id="fps">0 FPS</b></div><div><span>DROPPED</span><b id="dropped">0</b></div><div><span>INFERENCE</span><b id="inferenceSize">—</b></div><div><span>VERIFICATION</span><b id="verified">PENDING</b></div></section>
+        </div>
+      </div>
+    </section>
+
+    <section class="workflow" id="workflow"><div class="workflowCopy"><span class="pill">THE SIMPLE FLOW</span><h2>From yourself to<br><em>something new.</em></h2><p>Four deliberate steps keep transformation clear, controlled, and consent-based.</p><div class="steps"><article class="active"><b>01</b><div><h3>Upload your identity</h3><p>Use a clear portrait of your own face.</p></div></article><article><b>02</b><div><h3>Complete liveness</h3><p>Confirm a real person is present.</p></div></article><article><b>03</b><div><h3>Choose your tool</h3><p>Live, video, voice, avatar, or character.</p></div></article><article><b>04</b><div><h3>Create with control</h3><p>Preview, process, record, or publish.</p></div></article></div></div><div class="workflowVisual"><img src="/static/eidomira-feature-3d.png" alt="Glass identity transformation"><div class="workflowCard"><span>IDENTITY TRANSITION</span><b>Natural motion.<br>Stable presence.</b><div><i></i><i></i><i></i><i></i></div></div></div></section>
+
+    <section class="benefitSection"><div class="sectionIntro centered"><div><span class="pill">QUALITY YOU CAN FEEL</span><h2>Designed around presence,<br><em>not just pixels.</em></h2></div><p>Balanced real-time quality with graceful recovery, semantic boundaries, and a workflow that remains understandable.</p></div><div class="benefitTabs"><button class="active">Identity fidelity</button><button>Temporal stability</button><button>Privacy</button><button>HD delivery</button></div><div class="benefitPanel"><div><span class="benefitIcon">✦</span><h3>One reference.<br>Consistent identity.</h3><p>Preserve pose, expression, lighting, and movement while changing appearance.</p><ul><li>Continuous live-video transport</li><li>Occlusion-aware semantic blending</li><li>Adaptive quality without frame backlog</li></ul></div><img src="/static/eidomira-hero-3d.png" alt="Abstract glass face"></div></section>
+
+    <section class="pricingSection" id="pricing"><div class="sectionIntro centered"><div><span class="pill">SIMPLE, FLEXIBLE ACCESS</span><h2>Create occasionally.<br><em>Or make it your workflow.</em></h2></div><p>Start free after email verification, buy credits when needed, or unlock the best value with Live Pro.</p></div><div class="pricingGrid"><article><span class="planTag">FREE TRIAL</span><h3>Explore</h3><div class="price"><b>₦0</b><span>/ 7 days</span></div><p>Test the workflow before choosing a plan.</p><ul><li>100 verified-account credits</li><li>HD Face Swap and Lip Sync</li><li>No payment card required</li></ul><button class="button ghost priceSignup">Start free</button></article><article><span class="planTag">PAY AS YOU GO</span><h3>Creator Packs</h3><div class="price"><b>₦12k</b><span>from</span></div><p>Higher per-credit pricing, no recurring bill.</p><select id="paygPack" aria-label="PAYG credit pack"><option value="credits-200">200 credits · ₦12,000</option><option value="credits-500">500 credits · ₦27,500</option><option value="credits-1500">1,500 credits · ₦75,000</option><option value="credits-5000">5,000 credits · ₦225,000</option></select><ul><li>Credits valid for 12 months</li><li>All supported creative tools</li><li>No priority or API access</li></ul><button class="button ghost" id="paygBtn">Buy credits</button></article><article class="featuredPlan"><span class="popular">BEST VALUE</span><span class="planTag">LIVE PRO</span><h3>Professional</h3><div class="price"><b>₦59,900</b><span>/ month</span></div><p>Built for frequent creation and live presence.</p><ul><li>1,500 credits every month</li><li>10 min Full Live Swap</li><li>60 min/day Voice Changer</li><li>Priority processing + API</li><li>No promotional watermark</li></ul><button class="button primary" id="upgradeBtn">Choose monthly</button><button class="annualLink" id="annualBtn">Or ₦599,000 annually →</button></article></div><p class="provenanceNote">No promotional watermark on paid output. Synthetic-media provenance and required disclosures remain.</p></section>
+
+    <section class="callDock"><div><span class="microLabel">EIDOMIRA CALLS</span><strong>Host or join with transformed video</strong></div><input id="callName" placeholder="Display name" maxlength="48"><input id="callRoom" placeholder="Room code" maxlength="64"><button id="createCall">Create call</button><button id="joinCall">Join</button><button id="leaveCall" hidden>Leave</button><span id="callStatus">Not connected</span><div id="remoteGrid"></div></section>
+  </main>
+
+  <footer><div><a class="brand"><img class="brandmark" src="/static/eidomira-icon.png" alt=""><span>EIDOMIRA <b>LIVE</b></span></a><p>Be present. Appear differently.</p></div><div><span>PRODUCT</span><a href="#studio">Live Studio</a><a href="#suite">Creator Suite</a><a href="#pricing">Pricing</a></div><div><span>TRUST</span><a href="#workflow">Consent</a><a href="#studio">Privacy</a><a href="#studio">Provenance</a></div><small>© 2026 Eidomira · Consensual synthetic media · Frames are not stored</small></footer>
+</div>
+
+<div class="authModal" id="authModal" hidden><form class="authCard" id="authForm"><button type="button" class="authClose" id="authClose">×</button><span class="pill">EIDOMIRA ACCOUNT</span><h2 id="authTitle">Start your free trial</h2><p id="authCopy">Verify your email to receive 100 credits for 7 days. No card required.</p><input id="authEmail" type="email" placeholder="Email address" required autocomplete="email"><input id="authPassword" type="password" placeholder="Password · 10+ characters" required minlength="10" autocomplete="new-password"><button class="button primary" id="authSubmit" type="submit">Create account</button><button class="authSwitch" id="authSwitch" type="button">Already registered? Sign in</button><div class="authMessage" id="authMessage"></div></form></div>
+<div class="cleanToast">OBS CLEAN OUTPUT · PRESS ESC TO EXIT · SYNTHETIC LABEL REMAINS EMBEDDED</div>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script><script src="/static/app.js"></script>
+</body></html>
