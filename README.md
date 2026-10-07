@@ -662,11 +662,25 @@ same body. Nothing private moves either way — the shell has always been readab
 `STUDIO_REQUIRE_AUTH=1` the check runs inside the dependency instead, so no redirect happens
 there; that setting exists for installations putting a real front door in front.
 
-**Pages and scripts are revalidated, not reused.** They are served with `Cache-Control:
-no-cache`, so a browser asks before using its copy and an ETag usually answers 304. Without
-it a browser is entitled to invent a freshness lifetime, which is how a change that is live
-on the server stays invisible in a tab that was open across the deploy — and looks exactly
-like a change that did not work.
+**Pages and scripts are revalidated, not reused — and their URLs change when they do.**
+Every page is served with `Cache-Control: no-cache`, so a browser asks before using its copy
+and an ETag usually answers with a 304. That is not enough on its own, because a copy already
+in a cache may have been stored under the old headers with an invented freshness lifetime
+still running. So `app/pages.py` also rewrites every local asset reference the moment the page
+is served, appending a short digest of the file's bytes: `<script src="/static/landing.js?v=7b8a914b31">`.
+A version of a file is a different URL, which no cache in the path can answer with different
+content, and the digest is computed from the file rather than written into the markup, so
+there is no version number to remember to bump.
+
+This was learned the expensive way. A one-click demo sign-in existed for a day and was
+invisible: the page arrived (revalidated, carrying the markup) and `landing.js` did not (reused
+from the browser's cache), so the code that displays it never ran and no request for it ever
+reached the server. It presented exactly as a feature that had never been built. The service
+worker that `/app` registers caused it — it is network-first, but its `fetch()` still goes
+through the browser's own cache. Navigations now bypass that cache entirely, and the file's
+stamped URL covers everything else. One known gap: the runtime lab's page and its stylesheet are
+stamped, but the module it imports from inside (`/static/boost.js`) keeps its bare URL, so a
+browser holding a stale copy of that one file after an update would need a hard reload.
 
 **A proxy must be declared, or rate limiting degrades silently.** uvicorn only rewrites the
 peer address from `X-Forwarded-For` for proxies listed in `FORWARDED_ALLOW_IPS`

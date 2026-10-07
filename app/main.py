@@ -27,6 +27,7 @@ from app.engines import create_engine
 from app.sessions import SessionStore
 import app.admin as admin
 import app.demo as demo
+import app.pages as pages
 from app.rtc import LatestFrameProcessor, ProcessedVideoTrack, peers
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -173,7 +174,9 @@ def encode(rgb):
 
 
 @app.get("/")
-def index(): return FileResponse(ROOT / "static" / "index.html")
+def index():
+    """The marketing page, with its asset URLs stamped — see app/pages.py for why."""
+    return pages.html(ROOT / "static" / "index.html")
 
 
 @app.get("/models/face_landmarker.task", include_in_schema=False)
@@ -199,7 +202,7 @@ def lab():
     """The on-device runtime lab. Public and unauthenticated on purpose: it holds no session,
     no identity and no frames — it runs entirely in the visitor's browser, and its whole point
     is for someone to open it on their own device without signing up first."""
-    return FileResponse(ROOT / "static" / "lab" / "boost-lab.html")
+    return pages.html(ROOT / "static" / "lab" / "boost-lab.html")
 
 
 @app.get("/app")
@@ -222,13 +225,13 @@ def private_app(request: Request, user=Depends(optional_user)):
         if "text/html" in request.headers.get("accept", ""):
             return RedirectResponse("/?signin=1", status_code=302)
         raise HTTPException(401, "Authentication required")
-    return FileResponse(ROOT / "static" / "app.html")
+    return pages.html(ROOT / "static" / "app.html")
 
 
 @app.get("/admin", include_in_schema=False)
 def owner_console(user=Depends(require_admin)):
     """The owner's page. Ordinary accounts never see the link, and never reach the file."""
-    return FileResponse(ROOT / "static" / "admin.html")
+    return pages.html(ROOT / "static" / "admin.html")
 
 
 @app.get("/api/admin/overview", include_in_schema=False)
