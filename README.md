@@ -295,9 +295,48 @@ matters more than it sounds — an unbounded gain matches the reference's *contr
 low-contrast face carrying sensor grain gets its grain stretched to full texture strength.
 On the synthetic case that is a 9.3× contrast increase without the clamp and 0.93× with it.
 
+#### Pixel-boost: getting back what the 128 crop threw away
+
+`inswapper` works on a fixed 128×128 aligned crop, so a face that is 200 pixels across in
+the frame is sampled at 0.64× and everything finer than that is gone before the result is
+ever pasted back. That is what "raw swaps look soft" means.
+
+`app/boost.py` recovers it without another model. Nudge the crop by half a pixel, run the
+swapper again, and the second pass sees a *different sampling* of the same face. `scale`²
+passes at the sub-pixel offsets of a `scale × scale` grid carry exactly as many samples as
+a `scale × 128` canvas — four 128-squares are one 256-square, sample for sample — so the
+canvas is built by interleaving them. Not averaging: averaging means upscaling and blending
+the interpolated results, which measured *worse than a single pass* because the
+interpolation cost more detail than the phases added.
+
+Measured through the engine on a 200-pixel face whose detail is at the resolution limit:
+
+| `STUDIO_SWAP_PIXEL_BOOST` | passes | face detail recovered | error against the real face |
+|---|---|---|---|
+| 1 (default) | 1 | 44 of 7744 | 30.1 |
+| 2 | 4 | 1695 | 15.1 |
+| 3 | 9 | 3980 | 14.9 |
+
+The tests assert the stronger statement, as an identity rather than a similarity: with a
+resolution-limited stand-in, `scale`² passes are *bit-for-bit* the aligned crop rendered at
+`scale × 128`. That is a resolution recovery, not a sharpening filter.
+
+**What is not proven:** a real swapper is generative, and its output is not a plain
+resampling of its crop, so the gain will be smaller than the table above. Two things are
+known to limit it. The interleave gives every output pixel exactly one pass's sample, so it
+cannot average a pass's own noise away — measured: output noise equals input noise. And
+against a face *smaller* than the crop there is nothing to recover, so the engine skips the
+boost entirely rather than pay four passes for it; a test holds that.
+
+It is off by default. Turning it on runs the swap `scale`² times per frame, which is a
+different latency decision on a CPU box than on a GPU one, and the path has never executed
+against a real model — `insightface` is not installed here and there are no weights. The
+three assumptions it makes about that library are listed on `_boosted_swap`, and a failure
+falls back to one pass for the rest of the session rather than failing every frame.
+
 Still missing from the stack, in the order they block a launch: **trained swap weights in
-`models/`**, the **inswapper commercial licence**, and pixel-boost to 256/512. Until the
-first two exist, nothing here has been run against a real swap, and no parity with any
+`models/`** and the **inswapper commercial licence**. Until both exist, nothing here has
+been run against a real swap, no quality claim is a measurement, and no parity with any
 competitor is claimed.
 
 ### The trainer: watching for defects, and tuning what it may

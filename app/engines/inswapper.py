@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import time
 import cv2
 import numpy as np
@@ -7,6 +8,24 @@ from app.providers import describe_providers, execution_providers
 from app.config import settings
 from app.compositor import SemanticCompositor
 from app.enhance import FaceRestorer, transfer_tone
+
+log = logging.getLogger("eidomira.inswapper")
+
+
+class _AlignedFace:
+    """A face whose keypoints are the canonical arcface template.
+
+    `INSwapper.get` derives its own alignment from `target.kps` before it runs the model.
+    Handing it the template makes that alignment the identity, so the crop it processes is
+    exactly the crop it was handed — which is what the phased path in `app/boost.py` needs,
+    because it has already done the alignment itself and is varying it deliberately.
+    """
+
+    __slots__ = ("kps", "bbox")
+
+    def __init__(self, kps, bbox):
+        self.kps = kps
+        self.bbox = bbox
 
 
 class InSwapperEngine(FaceSwapEngine):
@@ -100,6 +119,27 @@ class InSwapperEngine(FaceSwapEngine):
             faults["parser"] = self.compositor.fault
         return faults
 
+    def _swap_face(self, bgr, target, identity):
+        """The swapped frame, boosted when asked for and possible.
+
+        A boost failure is reported once and then stops being attempted: a deployment whose
+        installed library does not match the assumptions `_boosted_swap` documents should
+        lose the boost, not every frame to an exception.
+        """
+        if int(settings.swap_pixel_boost) > 1 and not self._boost_disabled:
+            try:
+                boosted = self._boosted_swap(bgr, target, identity)
+                if boosted is not None:
+                    return boosted
+            except Exception as exc:
+                self._boost_disabled = True
+                log.warning(
+                    "pixel boost failed (%s: %s); using one pass for the rest of this "
+                    "session. Set STUDIO_SWAP_PIXEL_BOOST=1 to stop trying entirely.",
+                    type(exc).__name__, exc,
+                )
+        return self.swapper.get(bgr, target, identity, paste_back=True)
+
     def _quality(self, overrides):
         """This session's quality values, falling back to the configured defaults."""
         overrides = overrides or {}
@@ -109,6 +149,65 @@ class InSwapperEngine(FaceSwapEngine):
             float(overrides.get("restoration_visibility", settings.restoration_visibility)),
         )
 
+    def _boosted_swap(self, bgr, target, identity):
+        """The swapped face at `settings.swap_pixel_boost` times 128, pasted into the frame.
+
+        Returns None when the face is small enough that the crop had to *upsample* it: there
+        is no detail in a 128 crop to recover, and `scale`² passes would buy nothing for
+        `scale`² times the cost. The transform's linear term is the crop's scale, so it says
+        which case we are in without a second detection pass.
+
+        **This path has never run against a real model.** No swap weights exist on this
+        machine and `insightface` is not installed, so what is exercised by the tests is the
+        plumbing around a stand-in: the alignment it builds, the number of passes it makes,
+        the canvas size and the paste-back. Three things about the real library are assumed
+        and cannot be checked here:
+
+        1. `face_align.estimate_norm(kps, 128)` returns the same 2x3 affine `norm_crop2`
+           uses internally, so a crop warped with it is the crop the model expects.
+        2. The template keypoints make `INSwapper.get`'s own alignment the identity.
+        3. `INSwapper.get(..., paste_back=False)` returns the 128x128 aligned result.
+
+        If any of those is wrong the boost produces a scrambled or misaligned face rather
+        than a sharp one — which is why it is off by default, why it falls back to the
+        single pass on the first exception, and why the way to turn it on is to point
+        `tools/quality_report.py` at a real pair and look at the number.
+        """
+        from insightface.utils import face_align
+
+        from app.boost import ALIGN, boosted_face, paste_back, shifted_transform
+
+        scale = int(settings.swap_pixel_boost)
+        base = np.asarray(face_align.estimate_norm(target.kps, ALIGN, mode="arcface"),
+                          np.float64)
+        # The linear term is crop pixels per frame pixel. Above 1 the crop enlarges a face
+        # that was already small in the frame, so the detail the boost recovers was never
+        # thrown away and the passes would buy nothing for four times the cost. Below 1 the
+        # crop shrank a larger face into 128 px, and the phases are what gets it back.
+        if min(abs(base[0, 0]), abs(base[1, 1])) >= 1.0:
+            return None
+        # The template for this crop size, taken from the library rather than hardcoded:
+        # insightface defines it at 112 and scales it, and a copy here would drift.
+        template = np.asarray(face_align.arcface_dst, np.float32) * (ALIGN / 112.0)
+        aligned = _AlignedFace(template, target.bbox)
+
+        def warp_crop(dx, dy):
+            return cv2.warpAffine(
+                bgr, shifted_transform(base, dx, dy), (ALIGN, ALIGN),
+                flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE,
+            )
+
+        def swap_once(crop):
+            return self.swapper.get(crop, aligned, identity, paste_back=False)
+
+        canvas = boosted_face(warp_crop, swap_once, scale)
+        layer, alpha = paste_back(bgr, canvas, base, scale)
+        # `paste_back` hands back a layer that is zero outside the canvas, because a layer
+        # with a smeared border is the kind of thing that gets composited by accident. The
+        # frame the rest of the pipeline expects is the room with the boosted face on it,
+        # so the layer goes back over the room here, where the alpha says it is valid.
+        return np.where(alpha[..., None] > 0, layer, bgr).astype(np.uint8)
+
     def process(self, rgb, identity, verified, overrides=None):
         tone, feather, visibility = self._quality(overrides)
         start = time.perf_counter()
@@ -117,7 +216,7 @@ class InSwapperEngine(FaceSwapEngine):
         if not faces:
             return FrameResult(rgb, False, verified, (time.perf_counter()-start)*1000)
         target = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
-        result = self.swapper.get(bgr, target, identity, paste_back=True)
+        result = self._swap_face(bgr, target, identity)
         out = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
         # Restoration rebuilds what the 128px swap lost, before the mask decides how much
         # of it reaches the frame. Skipped entirely when this session has it at zero.

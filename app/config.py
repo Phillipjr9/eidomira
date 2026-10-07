@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="STUDIO_", env_file=".env")
     backend: str = "diagnostic"
     model_path: Path = Path("models/inswapper_128.onnx")
+    #: Sub-pixel resolution recovery on the swap output. 1 is off, giving the raw 128px
+    #: face; `scale` runs scale^2 passes of the swapper to fill a scale*128 canvas, so 2
+    #: doubles the effective sampling of the swapped face at four times the swap cost.
+    #: What app/boost.py proves about this, and what it does not, is written at the top
+    #: of that module.
+    swap_pixel_boost: int = 1
     max_sessions: int = 25
     session_ttl_seconds: int = 1800
     max_frame_width: int = 960

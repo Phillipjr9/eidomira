@@ -91,7 +91,7 @@ Consequences for Eidomira, in order:
 | Semantic mask that preserves hair/glasses/background | **done** — `app/compositor.py`, occluder classes re-applied after morphology |
 | LAB tone transfer | **done** — `transfer_tone()` in `app/enhance.py` |
 | Restoration at partial visibility | **done, inactive** — `FaceRestorer`, starts only when the model file exists |
-| Pixel-boost to 256/512 (subpixel) | not done |
+| Pixel-boost to 256/512 (subpixel) | **done, unverified** — `app/boost.py`, off by default; the mechanism is proven against a stand-in, the gain against a real swapper is not measurable here |
 | Trained swap weights in `models/` | not present |
 | inswapper commercial licence | not purchased |
 

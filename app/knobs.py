@@ -107,6 +107,9 @@ FIXED = {
     "verification_threshold": "an identity decision, not a quality preference: moving it "
                               "silently changes who is allowed through",
     "max_active_peers": "capacity, not quality",
+    "swap_pixel_boost": "it multiplies swap cost, and none of the metrics the trainer has "
+                        "measures sharpness against a reference: the one number it could "
+                        "move this on is the one number the project cannot measure here",
 }
 
 
