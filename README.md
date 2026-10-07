@@ -300,6 +300,79 @@ Still missing from the stack, in the order they block a launch: **trained swap w
 first two exist, nothing here has been run against a real swap, and no parity with any
 competitor is claimed.
 
+### The trainer: watching for defects, and tuning what it may
+
+`app/trainer.py` watches every sampled frame of a live session. **It cannot retrain the
+swap model** — there are no weights in `models/`, no training data, and no accelerator in
+this loop — so anything claiming otherwise would be inventing numbers. What it does is real:
+
+| | |
+| --- | --- |
+| **Monitor** | Every sampled frame is scored with the same metrics as `tools/quality_report.py`, and each defect is recorded with the measurement that produced it: a colour mismatch, a visible edge, a frame that claimed a face and changed nothing. |
+| **Tune** | When a measured defect has a knob that addresses it, it moves one step, then *verifies* the change against later samples and reverts it if the metric did not improve. A knob reverted twice is locked for the session, and a reverted knob gets a cooldown — otherwise the trainer re-applies the change it just disproved and spends the session oscillating. |
+| **Repair** | A stage that reports a fault is switched off rather than run on every remaining frame, and recorded as a defect. A parser that keeps returning no face pixels falls back to the box mask rather than compositing nothing. |
+| **Report** | `reports/<session>-<time>.md`: what was wrong, what changed and why, what was tried and reverted, what is locked, and what no setting can fix. |
+
+The panel in the studio (`/app`) shows the same thing live, over the telemetry channel.
+
+#### What it is allowed to touch
+
+Bounds live in `app/knobs.py`, shared by the live trainer and the offline one, because an
+unbounded search for "better" always finds a setting that scores well and looks wrong.
+
+| Knob | Range | Why the bound is there |
+| --- | --- | --- |
+| `tone_transfer_strength` | 0 – 1.0 | Past 1.0 the correction stops matching the target's light and starts replacing the swapped face with it. |
+| `restoration_visibility` | 0 – 1.0 | Full strength is reported to look airbrushed. |
+| `parser_feather` | .01 – .08 | Lower and the composited edge is a visible line; higher and the mask stops protecting hair and glasses. |
+
+`temporal_strength`, `verification_threshold`, `max_frame_width` and the rest are listed in
+`FIXED` with the reason, so "it did not touch this" is a decision on record: temporal
+strength already belongs to the adaptive controller, and a second controller moving it is
+how the two would fight.
+
+Values travel to the engine **per call**, never written to `settings`, because the engine is
+shared by every live session and one session's tuning must not change another's output.
+
+#### Why measurement is sampled
+
+A full-resolution quality sample costs **64 ms at 960×738** on this hardware — more than the
+entire 45 ms frame budget. So measurement happens on a frame downscaled to 256 px (5 ms),
+only every 30th frame, and never on a frame that was already over budget: spending 5 ms
+measuring a frame that is already late makes the lateness worse.
+
+#### The offline trainer
+
+`tools/train_defaults.py` replays frames and searches the same three knobs, writing what it
+measured to `data/tuned_defaults.json`, which `app/config.py` reads at startup and clamps.
+Delete the file to go back to the configured defaults.
+
+```bash
+python -m tools.train_defaults --synthetic 2          # generated cases with known defects
+python -m tools.train_defaults --pairs ./captures     # real saved *_original/_swapped pairs
+python -m tools.train_defaults --pairs ./captures --json --no-write
+```
+
+It refuses to do two things, both of which would be easy and both of which would be wrong:
+
+- **Score a knob it cannot evaluate.** `restoration_visibility` needs a restoration model to
+  re-run; with none installed it says so rather than inventing a value.
+- **Report its own noise as an improvement.** A change is only recommended if it beats the
+  current value by 15%, and never at a bound: these metrics are one-sided — nothing in them
+  penalises over-correcting a face or over-softening a mask — so a preference for the
+  extreme is not evidence. Each recommendation prints what that metric cannot see.
+
+Both rules exist because the first version broke both. Scored over a region derived from the
+frames being compared, the tone curve came out non-monotonic (0.6 scored 4.9 and 0.7 scored
+9.3, which no smooth blend parameter can do); pinning the region per pair made it monotone
+again. The margin and the bound rule came from the same failure in miniature: the search
+wanted to move `tone_transfer_strength` from 1.0 to 0.9 for a 10% gain, and `parser_feather`
+to its maximum.
+
+On generated pairs the search now finds nothing worth changing, which is the correct answer
+for data with no unknown in it — and it does find a genuinely wrong default: with
+`STUDIO_TONE_TRANSFER_STRENGTH=0.2` it recommends 0.9, an 89% improvement.
+
 ## Important MVP limitation
 
 Direct peer-to-worker WebRTC is implemented for the MVP. Before a high-concurrency launch, add a production TURN service and regional SFU/gateway rather than terminating every public peer directly on GPU workers. The current scheduler deliberately drops stale frames instead of accumulating latency, but GPU admission control is still required for multiple simultaneous neural sessions.

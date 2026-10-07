@@ -1,5 +1,8 @@
 from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.knobs import TUNED_DEFAULTS_PATH, apply_to_settings, read_tuned
 
 
 #: The value shipped here and in `.env.example`. Not a secret: it is in the repository.
@@ -32,6 +35,11 @@ class Settings(BaseSettings):
     restoration_visibility: float = 0.75
     tone_transfer_strength: float = 1.0
     parser_include_ears: bool = True
+    # The trainer watches every sampled frame, records defects, and tunes the knobs above
+    # within their bounds. It cannot retrain the swap model: there are no weights here.
+    trainer_enabled: bool = True
+    trainer_sample_every: int = 30
+    trainer_report_dir: Path = Path("reports")
     # Frame-latency targets live with the presets in app/adaptive.py (32/45/65 ms for
     # speed/balanced/quality). There is deliberately no single global target here: one
     # number cannot express three quality modes, and this field was never read by
@@ -84,3 +92,11 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Values measured by `tools/train_defaults.py`, if it has run. Clamped on the way in, so a
+# stale or hand-edited file cannot put the pipeline outside the ranges in app/knobs.py.
+# Recorded rather than merely applied, because "why is this number not the one in
+# .env.example" is a question that otherwise costs an hour.
+TUNED_DEFAULTS_APPLIED: dict = apply_to_settings(
+    settings, read_tuned(), source=str(TUNED_DEFAULTS_PATH)
+)

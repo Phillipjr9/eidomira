@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.config import settings
 from app.database import SCHEMA, database
 
 
@@ -32,3 +33,10 @@ def isolated_db(tmp_path):
         # release the temp file before pytest cleans the directory up, mostly on Windows
         with database.lock:
             pass
+
+
+@pytest.fixture(autouse=True)
+def reports_go_to_a_throwaway_directory(tmp_path, monkeypatch):
+    """The trainer writes one report per session, and the live path is exercised by
+    tests. Without this, running the suite fills `reports/` with test sessions."""
+    monkeypatch.setattr(settings, "trainer_report_dir", tmp_path / "reports")

@@ -84,7 +84,33 @@ class InSwapperEngine(FaceSwapEngine):
         blur = max(3, int(min(x2 - x1, y2 - y1) * feather) | 1)
         return cv2.GaussianBlur(alpha, (blur, blur), 0)
 
-    def process(self, rgb, identity, verified):
+    def active_stages(self) -> set[str]:
+        stages = set()
+        if self.restorer is not None:
+            stages.add("restoration")
+        if self.compositor is not None:
+            stages.add("parser")
+        return stages
+
+    def stage_faults(self) -> dict[str, str]:
+        faults = {}
+        if self.restorer is not None and self.restorer.fault:
+            faults["restoration"] = self.restorer.fault
+        if self.compositor is not None and self.compositor.fault:
+            faults["parser"] = self.compositor.fault
+        return faults
+
+    def _quality(self, overrides):
+        """This session's quality values, falling back to the configured defaults."""
+        overrides = overrides or {}
+        return (
+            float(overrides.get("tone_transfer_strength", settings.tone_transfer_strength)),
+            float(overrides.get("parser_feather", settings.parser_feather)),
+            float(overrides.get("restoration_visibility", settings.restoration_visibility)),
+        )
+
+    def process(self, rgb, identity, verified, overrides=None):
+        tone, feather, visibility = self._quality(overrides)
         start = time.perf_counter()
         bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         faces = self.analyzer.get(bgr)
@@ -94,17 +120,19 @@ class InSwapperEngine(FaceSwapEngine):
         result = self.swapper.get(bgr, target, identity, paste_back=True)
         out = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
         # Restoration rebuilds what the 128px swap lost, before the mask decides how much
-        # of it reaches the frame.
-        if self.restorer is not None:
-            out = self.restorer.enhance(out, target.bbox)
-        if self.compositor is not None:
-            out, alpha = self.compositor.blend(rgb, out, target.bbox)
+        # of it reaches the frame. Skipped entirely when this session has it at zero.
+        if self.restorer is not None and visibility > 0:
+            out = self.restorer.enhance(out, target.bbox, visibility)
+        # A parser that has been reporting no face pixels is worse than no parser: it
+        # composites nothing, so the swap silently does nothing. Fall back to the box.
+        if self.compositor is not None and self.compositor.fault is None:
+            out, alpha = self.compositor.blend(rgb, out, target.bbox, feather)
         else:
-            alpha = self._bbox_alpha(rgb, target.bbox)
+            alpha = self._bbox_alpha(rgb, target.bbox, feather)
         # Then put the result into the target's own lighting, which is the other thing a
         # viewer reads as "pasted in" even when the geometry is perfect.
-        if settings.tone_transfer_strength > 0:
-            out = transfer_tone(rgb, out, alpha, settings.tone_transfer_strength)
+        if tone > 0:
+            out = transfer_tone(rgb, out, alpha, tone)
         cv2.putText(out, "SYNTHETIC", (12, out.shape[0]-14), cv2.FONT_HERSHEY_SIMPLEX,
                     .48, (235, 225, 255), 1, cv2.LINE_AA)
         return FrameResult(out, True, verified, (time.perf_counter()-start)*1000)

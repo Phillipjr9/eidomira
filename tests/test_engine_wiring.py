@@ -65,9 +65,10 @@ class Swapper:
 class StubRestorer:
     def __init__(self):
         self.calls = []
+        self.fault = None
 
-    def enhance(self, frame_rgb, bbox):
-        self.calls.append(tuple(bbox))
+    def enhance(self, frame_rgb, bbox, visibility=None):
+        self.calls.append((tuple(bbox), visibility))
         return frame_rgb
 
 
@@ -155,9 +156,11 @@ def test_the_compositors_mask_is_the_one_used_for_tone_transfer(monkeypatch):
     class Compositor:
         def __init__(self):
             self.calls = 0
+            self.fault = None
 
-        def blend(self, original_rgb, swapped_rgb, bbox):
+        def blend(self, original_rgb, swapped_rgb, bbox, feather=None):
             self.calls += 1
+            self.feather = feather
             mask = np.zeros(original_rgb.shape[:2], np.float32)
             mask[60:140, 90:170] = 1.0
             out = original_rgb.copy()
@@ -178,7 +181,9 @@ def test_the_compositors_mask_is_the_one_used_for_tone_transfer(monkeypatch):
 def test_the_restorer_runs_before_the_composite_and_gets_the_face_box():
     restorer = StubRestorer()
     build_engine(restorer=restorer).process(room(), identity=None, verified=True)
-    assert restorer.calls == [BOX]
+    assert [call[0] for call in restorer.calls] == [BOX]
+    # no override, so the configured default is what reached the stage
+    assert restorer.calls[0][1] == settings.restoration_visibility
 
 
 def test_the_restorer_is_skipped_when_no_model_is_configured():

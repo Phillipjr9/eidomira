@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from fractions import Fraction
 
@@ -12,6 +13,7 @@ from aiortc import MediaStreamTrack, RTCPeerConnection
 from app.config import settings
 from app.temporal import MotionAwareStabilizer
 from app.adaptive import AdaptiveQualityController
+from app.trainer import Trainer
 
 
 class LatestFrameProcessor:
@@ -39,6 +41,19 @@ class LatestFrameProcessor:
         self.stabilizer = MotionAwareStabilizer(
             self.quality.temporal, settings.temporal_motion_threshold
         )
+        # Diagnostic mode has no swap to judge, so there is nothing to watch: an enabled
+        # trainer there would report a defect on every frame for doing exactly what
+        # diagnostic mode is supposed to do.
+        self.trainer = Trainer(
+            getattr(session, "session_id", "session"),
+            sample_every=settings.trainer_sample_every,
+            enabled=settings.trainer_enabled and engine.name != "diagnostic",
+            report_dir=settings.trainer_report_dir,
+            active_stages=engine.active_stages(),
+        )
+        self.seen = 0
+        self._last_frame_ms: float | None = None
+        self._trainer_signature: tuple = ()
         self.capture_task = asyncio.create_task(self._capture())
         self.infer_task = asyncio.create_task(self._infer())
 
@@ -65,6 +80,7 @@ class LatestFrameProcessor:
         try:
             while not self.closed:
                 frame = await self.input.get()
+                self.seen += 1
                 started = time.monotonic()
                 steady_state = False
                 face_found = False
@@ -101,7 +117,8 @@ class LatestFrameProcessor:
                         face_found = True
                         if verified:
                             result = await asyncio.to_thread(
-                                self.engine.process, rgb, self.session.identity, True
+                                self.engine.process, rgb, self.session.identity, True,
+                                self.trainer.overrides,
                             )
                             result_rgb, latency, face_found = result.image, result.latency_ms, result.face_found
                             steady_state = True
@@ -109,7 +126,8 @@ class LatestFrameProcessor:
                             result_rgb, latency = rgb, 0.0
                 else:
                     result = await asyncio.to_thread(
-                        self.engine.process, rgb, self.session.identity, self.session.verified
+                        self.engine.process, rgb, self.session.identity, self.session.verified,
+                        self.trainer.overrides,
                     )
                     result_rgb, latency, face_found = result.image, result.latency_ms, result.face_found
                     steady_state = True
@@ -123,12 +141,31 @@ class LatestFrameProcessor:
                         result_rgb = self.stabilizer.apply(rgb, result_rgb)
                     else:
                         self.stabilizer.reset()
+                # Measure before the frame is converted, and only frames the trainer can
+                # judge: a frame that carried no swapped face is not evidence about the
+                # quality of a swapped face. The metrics cost about 5 ms, so they run off
+                # the loop and only on the frames `should_sample` accepts.
+                metrics = None
+                if steady_state and face_found and self.trainer.enabled:
+                    over = (self._last_frame_ms is not None
+                            and self._last_frame_ms > self.quality.target)
+                    if self.trainer.should_sample(self.seen, over):
+                        metrics = await asyncio.to_thread(
+                            self.trainer.measure, rgb, result_rgb
+                        )
+                for stage, detail in self.engine.stage_faults().items():
+                    self.trainer.notice_fault(stage, detail)
+
                 output = av.VideoFrame.from_ndarray(result_rgb, format="rgb24")
                 output.pts = frame.pts
                 output.time_base = frame.time_base or Fraction(1, 90000)
                 self.processed += 1
                 frame_ms = (time.monotonic() - started) * 1000
                 self.quality.observe(self._observed_latency(steady_state, frame_ms))
+                self.trainer.observe(self.seen, frame_ms=frame_ms,
+                                     target_ms=self.quality.target, face_found=face_found,
+                                     metrics=metrics, steady_state=steady_state)
+                self._last_frame_ms = frame_ms
                 elapsed = max(.001, time.monotonic() - self.started)
                 # Two numbers, because they answer different questions: inference_ms is the
                 # engine's own work, frame_ms is everything this frame cost including
@@ -139,10 +176,26 @@ class LatestFrameProcessor:
                             "face_found": face_found, "inference_width": rgb.shape[1],
                             "quality": self.quality.preset,
                             "quality_adjustments": self.quality.adjustments})
+                self._send_trainer_state()
                 self._replace(self.output, output)
         except Exception as exc:
             self._send({"type": "error", "message": str(exc)})
             await self.stop()
+
+    def _send_trainer_state(self):
+        """Send the panel its state when something changed, plus a slow heartbeat.
+
+        Sending the whole ledger every frame would be most of the telemetry channel for no
+        new information, and sending it only on change leaves a panel that has never
+        received one after a session that found nothing.
+        """
+        signature = (sum(self.trainer.counts.values()), len(self.trainer.adjustments),
+                     len(self.trainer.repairs), self.trainer.locked and 1)
+        heartbeat = self.seen % 120 == 0
+        if signature == self._trainer_signature and not heartbeat:
+            return
+        self._trainer_signature = signature
+        self._send({"type": "trainer", **self.trainer.state()})
 
     def _observed_latency(self, steady_state: bool, frame_ms: float) -> float:
         """What the adaptive controller should learn from this frame.
@@ -179,6 +232,12 @@ class LatestFrameProcessor:
         for task in (self.capture_task, self.infer_task):
             if task is not current and not task.done():
                 task.cancel()
+        # The report is the part of the trainer that outlives the session, so it is written
+        # even if the stream ended badly.
+        path = self.trainer.write_report()
+        logging.getLogger("eidomira.trainer").info(
+            "%s%s", self.trainer.summary_line(), f" — report at {path}" if path else ""
+        )
 
 
 class ProcessedVideoTrack(MediaStreamTrack):

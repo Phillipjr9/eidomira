@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 import app.rtc as rtc
+from app.config import settings
 from app.engines.base import FrameResult
 from app.sessions import Session
 
@@ -33,8 +34,13 @@ class FakeEngine:
 
     name = "inswapper"
 
-    def process(self, rgb, identity, verified):
+    def __init__(self):
+        self.overrides_seen = []
+        self.faults = {}
+
+    def process(self, rgb, identity, verified, overrides=None):
         time.sleep(ENGINE_MS / 1000)
+        self.overrides_seen.append(dict(overrides or {}))
         return FrameResult(rgb.copy(), True, verified, ENGINE_MS)
 
     def verify_self(self, rgb, identity):
@@ -45,9 +51,23 @@ class FakeEngine:
         time.sleep(ENGINE_MS / 1000)
         return True, 0.0
 
+    def stage_faults(self):
+        return dict(self.faults)
+
+    def active_stages(self):
+        return {"restoration"}
+
 
 class DiagnosticLikeEngine(FakeEngine):
     name = "diagnostic"
+
+
+class NoFaceEngine(FakeEngine):
+    """A frame where the engine reports no face: not evidence about swap quality."""
+
+    def process(self, rgb, identity, verified, overrides=None):
+        super().process(rgb, identity, verified, overrides)
+        return FrameResult(rgb.copy(), False, verified, ENGINE_MS)
 
 
 class SlowStabilizer:
@@ -111,11 +131,11 @@ async def run_frames(engine, monkeypatch, verified=True, count=1, stabilizer=Slo
     finally:
         await processor.stop()
         await asyncio.sleep(0)  # let the cancelled tasks unwind inside this loop
-    return observed, channel
+    return observed, channel, processor
 
 
 def test_controller_sees_the_whole_frame_not_just_the_engine(monkeypatch):
-    observed, channel = asyncio.run(run_frames(FakeEngine(), monkeypatch))
+    observed, channel, _ = asyncio.run(run_frames(FakeEngine(), monkeypatch))
 
     metrics = channel.of_type("metrics")[0]
     assert metrics["inference_ms"] == pytest.approx(ENGINE_MS, abs=TOLERANCE)
@@ -136,7 +156,7 @@ def test_controller_sees_the_whole_frame_not_just_the_engine(monkeypatch):
 
 def test_the_two_reported_numbers_are_actually_different(monkeypatch):
     """If these ever collapse into one value, the distinction has been lost again."""
-    _, channel = asyncio.run(run_frames(FakeEngine(), monkeypatch))
+    _, channel, _ = asyncio.run(run_frames(FakeEngine(), monkeypatch))
     metrics = channel.of_type("metrics")[0]
     assert metrics["frame_ms"] - metrics["inference_ms"] >= STABILIZER_MS - TOLERANCE
 
@@ -193,7 +213,7 @@ def test_a_zero_sample_leaves_the_controller_untouched():
 
 def test_liveness_phase_still_emits_frames_but_is_not_measured(monkeypatch):
     """The challenge phase must keep the video flowing while being excluded from tuning."""
-    observed, channel = asyncio.run(run_frames(FakeEngine(), monkeypatch, verified=False))
+    observed, channel, _ = asyncio.run(run_frames(FakeEngine(), monkeypatch, verified=False))
 
     assert channel.of_type("liveness"), "no liveness challenge was sent"
     assert observed == [0.0], "a liveness frame was fed to the controller"
@@ -216,7 +236,13 @@ class SequenceEngine:
         self.calls = 0
         self.swaps = 0
 
-    def process(self, rgb, identity, verified):
+    def stage_faults(self):
+        return {}
+
+    def active_stages(self):
+        return set()
+
+    def process(self, rgb, identity, verified, overrides=None):
         swap, found = self.plan[min(self.calls, len(self.plan) - 1)]
         self.calls += 1
         image = rgb.copy()
@@ -310,3 +336,171 @@ def test_the_stabiliser_is_cleared_when_a_frame_is_not_swapped(monkeypatch):
     frames = asyncio.run(collect_frames(engine, monkeypatch, 3))
     assert len(frames) == 3
     assert int(frames[2][SWAP_PATCH].max()) == 0, "the third frame should be swapped afresh"
+
+
+# ───────────────────────── the trainer on the live path ─────────────────────────
+
+def test_the_trainer_state_reaches_the_studio(monkeypatch):
+    """The panel is fed from the same channel the other telemetry uses."""
+    _, channel, processor = asyncio.run(run_frames(FakeEngine(), monkeypatch))
+
+    states = channel.of_type("trainer")
+    assert states, "no trainer state was ever sent, so the panel would sit empty"
+    assert states[0]["monitoring"] is True
+    assert "counts" in states[0] and "values" in states[0]
+
+
+def test_diagnostic_mode_does_not_watch_anything(monkeypatch):
+    """There is no swap to judge, so every frame would be reported as a defect."""
+    _, channel, processor = asyncio.run(run_frames(DiagnosticLikeEngine(), monkeypatch))
+
+    assert processor.trainer.enabled is False
+    assert channel.of_type("trainer")[0]["monitoring"] is False
+    assert processor.trainer.counts == {}
+
+
+def test_a_frame_without_a_face_is_not_measured(monkeypatch):
+    """A frame that carried no swapped face is not evidence about swap quality."""
+    monkeypatch.setattr(settings, "trainer_sample_every", 1)
+    _, _, with_face = asyncio.run(run_frames(FakeEngine(), monkeypatch))
+    _, _, without = asyncio.run(run_frames(NoFaceEngine(), monkeypatch))
+
+    assert with_face.trainer.samples >= 1, (
+        "the harness never sampled anything, so the assertion below would hold for the "
+        "wrong reason"
+    )
+    assert without.trainer.samples == 0
+
+
+def test_a_tuned_value_reaches_the_engine_on_the_next_frame(monkeypatch):
+    async def scenario():
+        monkeypatch.setattr(rtc, "MotionAwareStabilizer", SlowStabilizer)
+        engine = FakeEngine()
+        session = Session("session-1", identity=object(), verified=True)
+        channel = RecordingChannel()
+        processor = rtc.LatestFrameProcessor(FakeTrack(2), engine, session, telemetry=channel)
+        try:
+            processor.trainer.values["tone_transfer_strength"] = .4
+            await asyncio.wait_for(processor.recv(), timeout=10)
+        finally:
+            await processor.stop()
+            await asyncio.sleep(0)
+        return engine
+
+    engine = asyncio.run(scenario())
+    assert engine.overrides_seen[-1].get("tone_transfer_strength") == .4
+
+
+def test_a_stage_that_reports_a_fault_is_repaired_and_reported(monkeypatch):
+    async def scenario():
+        monkeypatch.setattr(rtc, "MotionAwareStabilizer", SlowStabilizer)
+        engine = FakeEngine()
+        engine.faults = {"restoration": "the model rejected an input frame"}
+        session = Session("session-1", identity=object(), verified=True)
+        channel = RecordingChannel()
+        processor = rtc.LatestFrameProcessor(FakeTrack(1), engine, session, telemetry=channel)
+        try:
+            await asyncio.wait_for(processor.recv(), timeout=10)
+        finally:
+            await processor.stop()
+            await asyncio.sleep(0)
+        return channel, processor
+
+    channel, processor = asyncio.run(scenario())
+    assert processor.trainer.repairs[0].stage == "restoration"
+    assert processor.trainer.count("restoration_fault") == 1
+    # restoration gives way rather than being retried on every remaining frame
+    assert processor.trainer.overrides["restoration_visibility"] == 0.0
+    assert any("repairs" in state for state in channel.of_type("trainer"))
+
+
+def test_a_report_is_written_when_the_stream_ends(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "trainer_report_dir", tmp_path / "reports")
+    asyncio.run(run_frames(FakeEngine(), monkeypatch))
+
+    written = list((tmp_path / "reports").glob("*.md"))
+    assert len(written) == 1, f"expected one session report, found {written}"
+    assert "Session report" in written[0].read_text()
+
+
+def test_the_report_survives_a_stream_that_ended_after_one_frame(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "trainer_report_dir", tmp_path / "reports")
+    asyncio.run(run_frames(FakeEngine(), monkeypatch, count=1))
+    report = next((tmp_path / "reports").glob("*.md")).read_text()
+    assert "cannot retrain the swap model" in report
+
+
+# ─────────────────── the loop end to end, on a defect it can fix ───────────────────
+
+class NoSleepEngine(FakeEngine):
+    """No sleeping: the per-frame cost is the measurement, not a stand-in model."""
+
+    def process(self, rgb, identity, verified, overrides=None):
+        import cv2
+
+        from app.enhance import transfer_tone
+
+        tone = float((overrides or {}).get("tone_transfer_strength",
+                                           settings.tone_transfer_strength))
+        out = rgb.copy()
+        out[40:110, 100:190] = (out[40:110, 100:190].astype(int) - 30).clip(0, 255).astype("uint8")
+        mask = np.zeros(rgb.shape[:2], np.float32)
+        mask[45:105, 105:185] = 1.0
+        mask = cv2.GaussianBlur(mask, (21, 21), 0)
+        if tone > 0:
+            out = transfer_tone(rgb, out, mask, tone)
+        self.overrides_seen.append(dict(overrides or {}))
+        return FrameResult(out, True, verified, 4.0)
+
+
+class FastStabilizer:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def apply(self, input_rgb, output_rgb):
+        return output_rgb
+
+    def reset(self):
+        pass
+
+
+def test_the_trainer_improves_a_session_that_has_a_defect_it_can_fix(monkeypatch):
+    """The whole point, end to end: nobody touches anything and the output gets better.
+
+    The engine leaves the swapped face 30 levels dark, and the tone stage can correct it.
+    Starting from a deliberately low value, the trainer has to find its way up, keep the
+    steps that helped, and stop when one stops helping.
+    """
+    monkeypatch.setattr(settings, "trainer_sample_every", 1)
+    monkeypatch.setattr(settings, "tone_transfer_strength", .3)
+
+    async def scenario():
+        monkeypatch.setattr(rtc, "MotionAwareStabilizer", FastStabilizer)
+        engine = NoSleepEngine()
+        session = Session("climb", identity=object(), verified=True)
+        processor = rtc.LatestFrameProcessor(PacedTrack(60, interval=.01), engine, session)
+        seen = 0
+        try:
+            while seen < 60:
+                try:
+                    await asyncio.wait_for(processor.recv(), timeout=2)
+                    seen += 1
+                except asyncio.TimeoutError:
+                    break
+        finally:
+            await processor.stop()
+            await asyncio.sleep(0)
+        return processor
+
+    trainer = asyncio.run(scenario()).trainer
+    kept = [a for a in trainer.adjustments if a.kept is True]
+
+    assert kept, "the trainer never kept a change, so a fixable defect went unfixed"
+    assert trainer.values["tone_transfer_strength"] > .3, "the value never moved"
+    first, last = kept[0], kept[-1]
+    assert last.measured_after < first.measured_before, (
+        f"the defect did not improve: {first.measured_before} then {last.measured_after}"
+    )
+    assert last.measured_after < first.measured_before * .75, (
+        "the improvement is too small to call this working"
+    )

@@ -28,7 +28,7 @@ class DiagnosticEngine(FaceSwapEngine):
         self._diagnostic_pose_count = count + 1
         return True, yaw
 
-    def process(self, rgb, identity, verified):
+    def process(self, rgb, identity, verified, overrides=None):
         start = time.perf_counter()
         out = rgb.copy()
         h, w = out.shape[:2]

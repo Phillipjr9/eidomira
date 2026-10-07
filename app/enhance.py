@@ -143,9 +143,16 @@ class FaceRestorer:
             "face restoration disabled for this session — %s", message)
         return None
 
-    def enhance(self, frame_rgb: np.ndarray, bbox) -> np.ndarray:
-        """Restore the face inside `bbox` and blend it back at `visibility` strength."""
-        if self.visibility <= 0.0:
+    def enhance(self, frame_rgb: np.ndarray, bbox,
+                visibility: float | None = None) -> np.ndarray:
+        """Restore the face inside `bbox` and blend it back at `visibility` strength.
+
+        `visibility` overrides the instance value for this call, so a session can turn
+        restoration down without changing the engine every other session is using.
+        """
+        strength = (self.visibility if visibility is None
+                    else float(np.clip(visibility, 0.0, 1.0)))
+        if strength <= 0.0:
             return frame_rgb
         height, width = frame_rgb.shape[:2]
         x1, y1, x2, y2 = (max(0, int(v)) for v in bbox)
@@ -181,7 +188,7 @@ class FaceRestorer:
         restored = cv2.resize(restored, (x2 - x1, y2 - y1), interpolation=cv2.INTER_LANCZOS4)
 
         # Feather the paste so the restored crop does not arrive with its own edges.
-        alpha = np.ones((y2 - y1, x2 - x1), np.float32) * self.visibility
+        alpha = np.ones((y2 - y1, x2 - x1), np.float32) * strength
         blur = max(3, (min(y2 - y1, x2 - x1) // 8) | 1)
         alpha = cv2.GaussianBlur(alpha, (blur, blur), 0)[..., None]
 

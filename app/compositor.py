@@ -11,6 +11,11 @@ SKIN = {1, 2, 3, 4, 5, 10, 11, 12, 13}
 EARS = {7, 8}
 PROTECTED_OCCLUDERS = {6, 9, 14, 15, 16, 17, 18}  # glasses, jewelry, neck, clothes, hair, hat
 
+#: How many frames in a row may parse to nothing before the parser is treated as broken
+#: rather than unlucky. One frame without a face in the crop is ordinary; a parser that
+#: has its class layout wrong never produces one, and that difference is worth acting on.
+EMPTY_MASK_LIMIT = 3
+
 
 class SemanticCompositor:
     """Face-local semantic blending with occluder preservation.
@@ -38,6 +43,10 @@ class SemanticCompositor:
         # morphological close fills small holes, so any exclusion missing from this set is
         # silently undone — which is why `parser_include_ears: false` had no effect.
         self.protected = PROTECTED_OCCLUDERS | (set() if include_ears else EARS)
+        #: Set when the parser looks broken rather than merely unlucky. The engine reads
+        #: this and falls back to the box mask instead of compositing nothing.
+        self.fault: str | None = None
+        self.empty_frames = 0
 
     @staticmethod
     def _masks(raw: np.ndarray, classes, protected) -> tuple[np.ndarray, np.ndarray]:
@@ -73,7 +82,7 @@ class SemanticCompositor:
         y1 -= h * expansion; y2 += h * expansion
         return (max(0, int(x1)), max(0, int(y1)), min(width, int(x2)), min(height, int(y2)))
 
-    def mask(self, original_rgb: np.ndarray, bbox) -> np.ndarray:
+    def mask(self, original_rgb: np.ndarray, bbox, feather: float | None = None) -> np.ndarray:
         h, w = original_rgb.shape[:2]
         x1, y1, x2, y2 = self._expanded_bbox(bbox, w, h)
         crop = original_rgb[y1:y2, x1:x2]
@@ -84,6 +93,17 @@ class SemanticCompositor:
         tensor = np.transpose(tensor, (2, 0, 1))[None]
         raw = self.session.run(None, {self.input_name: tensor})[0]
         blendable, protected = self._masks(raw, self.classes, self.protected)
+        # A parser that emits probabilities or single-channel logits produces no face
+        # pixels at all, and `blend` then returns the original frame: the swap silently
+        # does nothing. That is worth saying out loud, and after a few frames in a row it
+        # is worth an answer, so the engine can fall back to the box mask instead.
+        if not blendable.any():
+            self.empty_frames += 1
+            if self.fault is None and self.empty_frames >= EMPTY_MASK_LIMIT:
+                self.fault = (f"the parser found no face pixels in {self.empty_frames} "
+                              "frames in a row")
+        else:
+            self.empty_frames = 0
         local = blendable.astype(np.uint8) * 255
         # Close tiny neural holes, but leave parsed glasses/hair excluded.
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
@@ -96,14 +116,15 @@ class SemanticCompositor:
                                    interpolation=cv2.INTER_NEAREST).astype(bool)
         local[protected] = 0
         local = cv2.resize(local, (x2 - x1, y2 - y1), interpolation=cv2.INTER_LINEAR)
-        blur = max(3, int(min(x2-x1, y2-y1) * self.feather) | 1)
+        blur = max(3, int(min(x2-x1, y2-y1) * (self.feather if feather is None else feather)) | 1)
         local = cv2.GaussianBlur(local, (blur, blur), 0)
         full = np.zeros((h, w), np.float32)
         full[y1:y2, x1:x2] = local.astype(np.float32) / 255.0
         return full
 
-    def blend(self, original_rgb: np.ndarray, swapped_rgb: np.ndarray, bbox):
-        alpha = self.mask(original_rgb, bbox)[..., None]
+    def blend(self, original_rgb: np.ndarray, swapped_rgb: np.ndarray, bbox,
+              feather: float | None = None):
+        alpha = self.mask(original_rgb, bbox, feather)[..., None]
         result = original_rgb.astype(np.float32) * (1.0 - alpha)
         result += swapped_rgb.astype(np.float32) * alpha
         # Round rather than truncate: truncation darkens the feathered seam by up to a level.

@@ -617,6 +617,55 @@ body.workspace {
 }
 
 /* --------------------------------------------------------------------------
+   Quality trainer
+   -------------------------------------------------------------------------- */
+.trainer {
+  margin-top: 12px;
+  padding: 14px 15px 15px;
+  border-radius: var(--r-md);
+  background: #00000040;
+  box-shadow: 0 0 0 1px var(--line-soft) inset;
+}
+.trainerHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.trainerHead b {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper-4);
+}
+.trainerHead b.watching { color: #6ee7a5; }
+.trainerHead b.tuning { color: #52d3ff; }
+.trainer p {
+  margin: 9px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-3);
+}
+.trainer ul {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.trainer li {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--paper-3);
+}
+.trainer li.bad { color: #fda4af; }
+.trainer li.warn { color: #fdba74; }
+.trainer li.good { color: #6ee7a5; }
+.trainer li.note { color: var(--paper-4); }
+
+/* --------------------------------------------------------------------------
    Calls dock
    -------------------------------------------------------------------------- */
 .callDock {

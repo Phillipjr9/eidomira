@@ -79,13 +79,21 @@ def seam_ratio(original: np.ndarray, swapped: np.ndarray,
 
 
 def colour_shift(original: np.ndarray, swapped: np.ndarray,
-                 threshold: int = CHANGE_THRESHOLD, ring: int = 6) -> dict | None:
+                 threshold: int = CHANGE_THRESHOLD, ring: int = 6,
+                 mask: np.ndarray | None = None) -> dict | None:
     """Colour distance between the composited region and the skin around it.
 
     The reference is a ring just outside the region rather than the whole frame, because
     what a viewer compares is the face against the jaw and neck next to it.
+
+    `mask` pins the region being measured. Without it the region is derived from where the
+    two frames differ, which makes the metric non-stationary across candidate settings: a
+    stronger correction moves the region it is being measured over, so a search comparing
+    two settings is comparing two different measurements. `tools/train_defaults.py` passes
+    one for exactly that reason.
     """
-    mask = changed_mask(original, swapped, threshold)
+    if mask is None:
+        mask = changed_mask(original, swapped, threshold)
     if not mask.any():
         return None
     kernel = np.ones((ring, ring), np.uint8)

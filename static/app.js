@@ -92,7 +92,27 @@ function handleTelemetry(event){
   if(j.type==='liveness'){$('livenessPrompt').style.display=j.complete?'none':'block';$('livenessText').textContent=j.instruction;$('livenessBar').style.width=Math.round(j.progress*100)+'%';$('verified').textContent=j.complete?'MATCHING':'LIVE CHECK';if(j.expired)status(j.instruction,true)}
   if(j.type==='verification'){$('livenessPrompt').style.display='none';$('verified').textContent=j.verified?'VERIFIED':'FAILED';if(!j.verified)status('Live face does not match the enrolled identity.',true)}
   if(j.type==='metrics'){$('latency').textContent=j.inference_ms+' ms';$('frameCost').textContent=(j.frame_ms!=null?j.frame_ms+' ms':'— ms');$('fps').textContent=j.fps+' FPS';$('dropped').textContent=j.dropped;$('inferenceSize').textContent=j.inference_width+' px';$('outputBadge').textContent=j.face_found?'LIVE':'NO FACE'}
+  if(j.type==='trainer')renderTrainer(j);
   if(j.type==='error')status(j.message,true);
+}
+function renderTrainer(state){
+  const badge=$('trainerState');
+  badge.textContent=!state.monitoring?'Off':(state.pending?'Tuning '+state.pending:'Watching');
+  badge.className=!state.monitoring?'off':(state.pending?'tuning':'watching');
+  const parts=[];
+  if(state.samples)parts.push(state.samples+(state.samples===1?' frame measured':' frames measured'));
+  parts.push(state.mistakes?(state.mistakes+(state.mistakes===1?' defect':' defects')):'no defects found');
+  if(state.kept)parts.push(state.kept+(state.kept===1?' setting improved':' settings improved'));
+  if(state.reverted)parts.push(state.reverted+' reverted');
+  if(state.repairs&&state.repairs.length)parts.push(state.repairs.length+(state.repairs.length===1?' stage repaired':' stages repaired'));
+  $('trainerSummary').textContent=state.monitoring?parts.join(' · '):'Not monitoring this session.';
+  const rows=[];
+  (state.repairs||[]).forEach(r=>rows.push(['good',r.stage+': '+r.action]));
+  (state.recent||[]).forEach(m=>rows.push([m.severity==='critical'?'bad':(m.severity==='warning'?'warn':'note'),m.summary]));
+  (state.notes||[]).forEach(n=>rows.push(['note',n]));
+  $('trainerList').replaceChildren(...rows.slice(-4).map(([kind,text])=>{
+    const li=document.createElement('li');li.className=kind;li.textContent=text;return li;
+  }));
 }
 async function updateWebRTCStats(){
   if(!pc)return;let inbound=0;

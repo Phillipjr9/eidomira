@@ -52,12 +52,31 @@ def test_every_eidomira_variable_in_the_example_is_read_by_the_providers_module(
 
 
 def test_the_refinement_settings_documented_in_the_example_are_honoured():
-    """Guards the three settings this change introduced."""
-    assert settings.restoration_visibility == .75
-    assert settings.tone_transfer_strength == 1.0
-    assert settings.restoration_model_path == Path("models/gfpgan_1.4.onnx")
+    """Guards the three settings this change introduced.
+
+    Asserted on a fresh `Settings()`, not on the live object: the live one may have been
+    changed by `tools/train_defaults.py`, and a test that fails on a machine where the
+    trainer has done its job would be punishing the feature for working.
+    """
+    documented = Settings()
+    assert documented.restoration_visibility == .75
+    assert documented.tone_transfer_strength == 1.0
+    assert documented.restoration_model_path == Path("models/gfpgan_1.4.onnx")
+    assert documented.trainer_sample_every == 30
+    assert documented.trainer_report_dir == Path("reports")
     # Off by default is the safety property: no model file, no restoration, no error.
-    assert not settings.restoration_model_path.exists()
+    assert not documented.restoration_model_path.exists()
+
+
+def test_what_the_offline_trainer_applied_is_recorded():
+    """`why is this number not the one in .env.example` should not cost an hour."""
+    from app.config import TUNED_DEFAULTS_APPLIED
+    from app.knobs import KNOBS
+
+    assert isinstance(TUNED_DEFAULTS_APPLIED, dict)
+    assert set(TUNED_DEFAULTS_APPLIED) <= set(KNOBS), (
+        "a tuned value was applied for a setting the bounds table does not cover"
+    )
 
 
 def test_the_shipped_signing_key_is_recognised_as_the_default():
