@@ -1,80 +1,113 @@
 const $=id=>document.getElementById(id);
 let accessToken=localStorage.getItem('eidomira_access_token')||'';
 if(!accessToken)location.replace('/?signin=1');
-function apiFetch(url,options={}){const headers=new Headers(options.headers||{});if(accessToken)headers.set('Authorization','Bearer '+accessToken);return fetch(url,{...options,headers})}
+/* One place where a dead session is noticed.
+ *
+ * A token can stop working for reasons the browser cannot see: the account was removed, the
+ * database was rebuilt, or the signing key changed. Every call then answered 401 and the page
+ * carried on looking signed in — the balance never filled in, checkout did nothing, and the
+ * only clue was silence. A 401 on a request that carried a token means that token is finished,
+ * so it is dropped and the visitor is sent to the sign-in card, once, here. */
+async function apiFetch(url,options={}){
+  const headers=new Headers(options.headers||{});
+  if(accessToken)headers.set('Authorization','Bearer '+accessToken);
+  const response=await fetch(url,{...options,headers});
+  if(response.status===401&&accessToken){setToken('');location.replace('/?signin=1')}
+  return response;
+}
 function setToken(token){accessToken=token||'';if(token)localStorage.setItem('eidomira_access_token',token);else localStorage.removeItem('eidomira_access_token')}
-let authMode='register';
-async function loadAccount(){if(!accessToken){location.replace('/?signin=1');return}try{const me=await apiFetch('/api/auth/me').then(r=>{if(!r.ok)throw Error();return r.json()});$('accountBtn').textContent='Account';$('accountBar').hidden=false;$('accountEmail').textContent=me.email;$('adminLink').hidden=me.role!=='admin';const billing=await apiFetch('/api/billing/account').then(r=>r.json());$('accountPlan').textContent=(billing.subscription?.plan||'NO PLAN').toUpperCase();renderWallet(billing,me)}catch{setToken('');location.replace('/?signin=1')}}
-function openAuth(mode){authMode=mode==='login'?'login':'register';renderAuth();$('authModal').hidden=false}
-function renderAuth(){$('authTitle').textContent=authMode==='register'?'Start your free trial':'Welcome back';$('authCopy').textContent=authMode==='register'?'Verify your email to receive 100 credits for 7 days. No card required.':'Sign in to your Eidomira account.';$('authSubmit').textContent=authMode==='register'?'Create account':'Sign in';$('authSwitch').textContent=authMode==='register'?'Already registered? Sign in':'New to Eidomira? Start free trial';$('authPassword').autocomplete=authMode==='register'?'new-password':'current-password';$('authMessage').textContent=''}
-$('accountBtn').onclick=()=>accessToken?$('accountBar').toggleAttribute('hidden'):openAuth();$('authClose').onclick=()=>$('authModal').hidden=true;$('authSwitch').onclick=()=>{authMode=authMode==='register'?'login':'register';renderAuth()};$('logoutBtn').onclick=async()=>{try{await fetch('/api/auth/logout',{method:'POST'})}catch{}setToken('');location.href='/'};
-async function startCheckout(product){if(!accessToken)return openAuth();try{const r=await apiFetch('/api/payments/paystack/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product})}),j=await r.json();if(!r.ok)throw Error(j.error||'Checkout unavailable');location.href=j.authorization_url}catch(e){status(e.message,true)}}
-$('upgradeBtn').onclick=()=>startCheckout('live-pro-monthly');$('annualBtn').onclick=()=>startCheckout('live-pro-annual');$('buyCreditsBtn').onclick=()=>{$('walletPanel').scrollIntoView({behavior:'smooth',block:'center'})};document.querySelectorAll('.priceSignup').forEach(b=>b.onclick=openAuth);document.querySelectorAll('.benefitTabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.benefitTabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active')});
-$('authForm').onsubmit=async e=>{e.preventDefault();$('authSubmit').disabled=true;try{const r=await fetch('/api/auth/'+authMode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('authEmail').value,password:$('authPassword').value})}),j=await r.json();if(!r.ok)throw Error(j.error||'Authentication failed');if(j.access_token){setToken(j.access_token);$('authModal').hidden=true;await loadAccount()}else $('authMessage').textContent=j.message}catch(err){$('authMessage').textContent=err.message;$('authMessage').style.color='#fda4af'}finally{$('authSubmit').disabled=false}};
 function creditCount(n){return (n||0).toLocaleString('en-NG')}
 function walletDate(seconds){return new Date(seconds*1000).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})}
+function note(node,message,bad=false){node.textContent=message||'';node.style.color=bad?'#fda4af':''}
 
-/* The credits panel.
- *
- * Everything it shows comes from /api/billing/account: the balance and its parts, the
- * packs with the prices the server will actually charge, and this account's own ledger.
- * The panel used to be a <select> in the account bar with the prices typed into the
- * markup, which meant the number beside a pack and the number sent to Paystack were two
- * separate facts that merely agreed at the time.
+/* The account this session belongs to, kept from /api/auth/me so the billing view can tell
+ * whether this browser is verified without fetching it twice. */
+let me=null;
+
+/* ------------------------------------------------------------------- sections
+ * Three views, one visible at a time, addressed by the URL hash so a link is shareable and
+ * the back button works. This is the only navigation: the credit chip and the account chip
+ * in the bar point at these views rather than repeating the numbers inside them, so a
+ * balance or a plan is rendered in exactly one place.
  */
-function renderWallet(billing,user){
-  const wallet=billing.wallet||{}, total=wallet.total||0;
-  $('creditBalance').textContent=creditCount(total);
-  $('walletTotal').textContent=creditCount(total);
-  $('walletPlanCredits').textContent=creditCount(wallet.subscription_credits);
-  $('walletTopupCredits').textContent=creditCount(wallet.topup_credits);
-  $('walletUsedCredits').textContent=creditCount(billing.credits_used);
+const VIEWS=['studio','billing','settings'];
+const viewId=name=>'view'+name[0].toUpperCase()+name.slice(1);
 
-  const expiry=$('walletExpiry');
-  if(wallet.topup_credits>0&&wallet.topup_expires_at){
-    expiry.hidden=false;
-    expiry.textContent='Top-up credits are usable until '+walletDate(wallet.topup_expires_at)+'.';
-  }else expiry.hidden=true;
-
-  const packs=$('walletPacks');packs.replaceChildren();
-  (billing.topups||[]).forEach(pack=>{
-    const button=document.createElement('button');
-    button.type='button';button.className='walletPack';button.dataset.product=pack.product;
-    const credits=document.createElement('b');credits.textContent='+'+creditCount(pack.credits);
-    const price=document.createElement('span');price.textContent=pack.price;
-    button.append(credits,price);
-    button.onclick=()=>startCheckout(pack.product);
-    packs.append(button);
-  });
-
-  const state=$('walletState'),message=$('walletMessage');
-  if(!billing.paystack_configured){
-    state.textContent='Payments off';state.className='off';packs.hidden=true;
-    message.textContent='Card payments are not switched on for this installation yet, so packs cannot be bought here. Plan credits still apply.';
-  }else if(user&&!user.email_verified){
-    state.textContent='Verify email';state.className='off';packs.hidden=false;
-    message.textContent='Verify your email address to buy credits: Paystack is given a confirmed address.';
-  }else if(total<=0){
-    state.textContent='Empty';state.className='off';packs.hidden=false;
-    message.textContent='No credits left. Buy a pack below, or upgrade to Live Pro for 1,500 a month.';
-  }else{
-    state.textContent='Ready';state.className='watching';packs.hidden=false;message.textContent='';
-  }
-
-  const list=$('walletLedger');list.replaceChildren();
-  const entries=billing.ledger||[];
-  if(!entries.length){const li=document.createElement('li');li.className='note';li.textContent='Nothing yet.';list.append(li);return}
-  entries.forEach(entry=>{
-    const li=document.createElement('li');
-    const delta=document.createElement('b');
-    delta.className=entry.delta>0?'good':'spent';
-    delta.textContent=(entry.delta>0?'+':'')+creditCount(entry.delta);
-    const what=document.createElement('span');
-    what.textContent=entry.description+' · '+walletDate(entry.created_at);
-    li.append(delta,what);
-    list.append(li);
+function showView(name){
+  const wanted=VIEWS.includes(name)?name:'studio';
+  VIEWS.forEach(v=>{$(viewId(v)).hidden=v!==wanted});
+  document.querySelectorAll('.tab[data-view]').forEach(tab=>{
+    const on=tab.dataset.view===wanted;
+    tab.classList.toggle('active',on);
+    if(on)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current');
   });
 }
+addEventListener('hashchange',()=>showView((location.hash||'#studio').slice(1)));
+
+/* ----------------------------------------------------------------- preferences
+ * Stored in this browser and applied to the next camera start or enrolment. Deliberately
+ * not account settings: they describe this device, and syncing them would mean storing
+ * device names on the server for no benefit.
+ */
+const PREFS_KEY='eidomira_studio_prefs';
+const DEFAULT_PREFS={quality:'balanced',cameraId:'',micId:'',reduceMotion:false};
+function readPrefs(){
+  try{return {...DEFAULT_PREFS,...JSON.parse(localStorage.getItem(PREFS_KEY)||'{}')}}
+  catch{return {...DEFAULT_PREFS}}
+}
+function writePrefs(patch){
+  const next={...readPrefs(),...patch};
+  try{localStorage.setItem(PREFS_KEY,JSON.stringify(next))}catch{}
+  applyPrefs(next);
+  return next;
+}
+function applyPrefs(prefs=readPrefs()){
+  document.querySelectorAll('input[name=quality]').forEach(radio=>{radio.checked=radio.value===prefs.quality});
+  const label=prefs.quality[0].toUpperCase()+prefs.quality.slice(1);
+  $('qualityNow').textContent=label;
+  $('motionToggle').checked=Boolean(prefs.reduceMotion);
+  document.body.classList.toggle('reduceMotion',Boolean(prefs.reduceMotion));
+  if($('cameraDevice'))$('cameraDevice').value=prefs.cameraId||'';
+  if($('micDevice'))$('micDevice').value=prefs.micId||'';
+}
+
+function fillDeviceSelect(select,label,devices){
+  const chosen=select.value;
+  select.replaceChildren();
+  const fallback=document.createElement('option');
+  fallback.value='';fallback.textContent=label;
+  select.append(fallback);
+  devices.forEach(device=>{
+    const option=document.createElement('option');
+    option.value=device.deviceId;
+    option.textContent=device.label||('Device ending '+(device.deviceId||'').slice(-4));
+    select.append(option);
+  });
+  if([...select.options].some(option=>option.value===chosen))select.value=chosen;
+}
+
+async function listDevices(){
+  const camera=$('cameraDevice'),mic=$('micDevice'),noteNode=$('deviceNote');
+  if(!navigator.mediaDevices?.enumerateDevices){noteNode.textContent='This browser cannot list devices, so the defaults are used.';return}
+  try{
+    const devices=await navigator.mediaDevices.enumerateDevices();
+    fillDeviceSelect(camera,'Default camera',devices.filter(d=>d.kind==='videoinput'));
+    fillDeviceSelect(mic,'Default microphone',devices.filter(d=>d.kind==='audioinput'));
+    noteNode.textContent=devices.some(d=>d.label)
+      ?'Choosing a device applies the next time the camera starts.'
+      :'Device names appear once you have allowed camera access at least once in this browser.';
+  }catch{
+    noteNode.textContent='Devices could not be listed in this browser.';
+  }
+}
+
+/* ----------------------------------------------------------------------- auth */
+let authMode='register';
+function renderAuth(){$('authTitle').textContent=authMode==='register'?'Start your free trial':'Welcome back';$('authCopy').textContent=authMode==='register'?'Verify your email to receive 100 credits for 7 days. No card required.':'Sign in to your Eidomira account.';$('authSubmit').textContent=authMode==='register'?'Create account':'Sign in';$('authSwitch').textContent=authMode==='register'?'Already registered? Sign in':'New to Eidomira? Start free trial';$('authPassword').autocomplete=authMode==='register'?'new-password':'current-password';$('authMessage').textContent=''}
+function openAuth(mode){authMode=mode==='login'?'login':'register';renderAuth();$('authModal').hidden=false}
+$('authClose').onclick=()=>$('authModal').hidden=true;
+$('authSwitch').onclick=()=>{authMode=authMode==='register'?'login':'register';renderAuth()};
+$('authForm').onsubmit=async e=>{e.preventDefault();$('authSubmit').disabled=true;try{const r=await fetch('/api/auth/'+authMode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('authEmail').value,password:$('authPassword').value})}),j=await r.json();if(!r.ok)throw Error(j.error||'Authentication failed');if(j.access_token){setToken(j.access_token);$('authModal').hidden=true;await loadAccount()}else $('authMessage').textContent=j.message}catch(err){$('authMessage').textContent=err.message;$('authMessage').style.color='#fda4af'}finally{$('authSubmit').disabled=false}};
 
 /* One-click demo sign-in.
  *
@@ -119,9 +152,209 @@ async function demoSignIn(button){
   }finally{button.disabled=false}
 }
 
-async function verifyFromLink(){const token=new URLSearchParams(location.search).get('verify');if(!token)return;history.replaceState({},'',location.pathname);const r=await fetch('/api/auth/verify-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}),j=await r.json();if(r.ok){setToken(j.access_token);status('Email verified. Your 7-day trial is active.');loadAccount()}else{openAuth();$('authMessage').textContent=j.error}}
-async function verifyPaymentReturn(){const p=new URLSearchParams(location.search),reference=p.get('reference');if(p.get('payment')!=='return'||!reference)return;history.replaceState({},'',location.pathname);if(!accessToken)return openAuth();status('Confirming Paystack payment…');try{const r=await apiFetch('/api/payments/paystack/verify/'+encodeURIComponent(reference)),j=await r.json();if(!r.ok)throw Error(j.error||'Payment verification failed');if(j.status==='success'){status('Payment confirmed. '+((j.kind==='topup')?'Credits added to your balance.':'Live Pro is active.'));await loadAccount()}else status('Payment is '+j.status+'. Your plan has not been changed.',true)}catch(e){status(e.message,true)}}
-loadAccount();verifyFromLink();verifyPaymentReturn();loadAuthMethods();
+/* ------------------------------------------------------------------- account */
+
+function tokenExpiry(){
+  try{
+    const payload=JSON.parse(atob(accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+    return payload.exp?new Date(payload.exp*1000):null;
+  }catch{return null}
+}
+
+async function loadAccount(){
+  if(!accessToken){location.replace('/?signin=1');return}
+  try{
+    const response=await apiFetch('/api/auth/me');
+    if(!response.ok)throw Error();
+    me=await response.json();
+    $('chipEmail').textContent=me.email;
+    $('accountEmail').textContent=me.email;
+    $('accountVerified').textContent=me.email_verified?'Yes':'Not yet — check your inbox';
+    $('accountRole').textContent=me.role==='admin'?'Administrator':'Member';
+    $('resendBtn').hidden=Boolean(me.email_verified);
+    $('adminLink').hidden=me.role!=='admin';
+    const expiry=tokenExpiry();
+    $('sessionExpiry').textContent=expiry?expiry.toLocaleString():'unknown';
+    await loadBilling();
+  }catch{setToken('');location.replace('/?signin=1')}
+}
+
+/* ------------------------------------------------------------------- billing
+ * One place for money. The balance, the plan, the packs and the ledger are rendered here
+ * and nowhere else — the studio no longer carries a second copy of any of it.
+ */
+async function loadBilling(){
+  const billing=await apiFetch('/api/billing/account').then(r=>r.json());
+  renderBilling(billing);
+  return billing;
+}
+
+function renderBilling(billing){
+  const wallet=billing.wallet||{},total=wallet.total||0;
+  $('creditBalance').textContent=creditCount(total);
+  $('walletTotal').textContent=creditCount(total);
+  $('walletPlanCredits').textContent=creditCount(wallet.subscription_credits);
+  $('walletTopupCredits').textContent=creditCount(wallet.topup_credits);
+  $('walletUsedCredits').textContent=creditCount(billing.credits_used);
+
+  const expiry=$('walletExpiry');
+  if(wallet.topup_credits>0&&wallet.topup_expires_at){
+    expiry.hidden=false;
+    expiry.textContent='Top-up credits are usable until '+walletDate(wallet.topup_expires_at)+'.';
+  }else expiry.hidden=true;
+
+  const plan=billing.plan||{};
+  $('planName').textContent=plan.name||'Eidomira Live Pro';
+  if(plan.price_ngn)$('planPriceNgn').textContent='\u20a6'+creditCount(plan.price_ngn);
+  if(plan.price_usd)$('planPriceUsd').textContent='$'+plan.price_usd;
+  const features=$('planFeatures');features.replaceChildren();
+  (plan.features||[]).forEach(feature=>{const li=document.createElement('li');li.textContent=feature;features.append(li)});
+
+  const sub=billing.subscription,pill=$('accountPlan'),planNote=$('planNote');
+  if(sub&&sub.status==='trialing'){
+    pill.textContent='TRIAL';pill.className='pill';
+    planNote.textContent='Trial ends '+walletDate(sub.current_period_end)+'. Your trial credits stay yours when you upgrade.';
+  }else if(sub&&sub.status==='active'){
+    pill.textContent=String(sub.plan||'live-pro').toUpperCase();pill.className='pill pill--live';
+    planNote.textContent='Active until '+walletDate(sub.current_period_end)+'.';
+  }else{
+    pill.textContent='NO PLAN';pill.className='pill';
+    planNote.textContent='No active plan. Top-up credits work without one; plan credits need a plan.';
+  }
+
+  /* The packs are always shown. They used to be hidden outright when the provider was not
+   * configured, which meant a deployment with no Paystack key had no payment UI at all and
+   * looked like a missing feature rather than a missing setting. Disabled and explained
+   * beats invisible. */
+  const configured=Boolean(billing.paystack_configured);
+  const verified=Boolean(me&&me.email_verified);
+  const buyable=configured&&verified;
+  const packs=$('walletPacks');packs.replaceChildren();
+  (billing.topups||[]).forEach(pack=>{
+    const card=document.createElement('button');
+    card.type='button';card.className='packCard';card.dataset.product=pack.product;card.disabled=!buyable;
+    const credits=document.createElement('b');credits.textContent='+'+creditCount(pack.credits)+' credits';
+    const price=document.createElement('span');price.textContent=pack.price;
+    const action=document.createElement('small');
+    action.textContent=buyable?'Pay with Paystack':(configured?'Verify your email first':'Card payments are off');
+    card.append(credits,price,action);
+    if(buyable)card.onclick=()=>startCheckout(pack.product);
+    packs.append(card);
+  });
+
+  const paymentState=$('paystackState'),paymentNote=$('paystackNote');
+  if(configured){
+    paymentState.textContent='Paystack ready';paymentState.className='badge live';
+    paymentNote.textContent='Paystack takes the card on its own page. You come back here when it is done, and the credits are added automatically.';
+  }else{
+    paymentState.textContent='Paystack not configured';paymentState.className='badge off';
+    paymentNote.textContent='This deployment has no Paystack secret key, so no card can be entered and nothing can be charged. Set STUDIO_PAYSTACK_SECRET_KEY and register the webhook to switch these on — the prices below are what it will charge.';
+  }
+
+  const state=$('walletState'),message=$('walletMessage');
+  if(!configured){state.textContent='Payments off';state.className='badge off'}
+  else if(!verified){state.textContent='Verify email';state.className='badge off'}
+  else if(total<=0){state.textContent='Empty';state.className='badge off'}
+  else{state.textContent='Ready';state.className='badge live'}
+  if(!message.textContent&&!configured)
+    message.textContent='No credits can be bought on this deployment yet. The buttons above are switched off, not broken.';
+
+  const list=$('walletLedger');list.replaceChildren();
+  const entries=billing.ledger||[];
+  if(!entries.length){
+    const li=document.createElement('li');li.className='note';li.textContent='No credit movements yet.';
+    list.append(li);
+  }
+  entries.forEach(entry=>{
+    const li=document.createElement('li');
+    const delta=document.createElement('b');
+    delta.className=entry.delta>0?'good':'spent';
+    delta.textContent=(entry.delta>0?'+':'')+creditCount(entry.delta);
+    const what=document.createElement('span');
+    what.textContent=(entry.description||entry.kind)+' · '+walletDate(entry.created_at);
+    const after=document.createElement('small');
+    after.textContent=creditCount(entry.balance_after)+' after';
+    li.append(delta,what,after);
+    list.append(li);
+  });
+}
+
+async function startCheckout(product){
+  if(!accessToken)return openAuth();
+  const message=$('walletMessage');
+  note(message,'Opening Paystack…');
+  try{
+    const response=await apiFetch('/api/payments/paystack/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product})});
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||'Checkout is unavailable');
+    note(message,'Taking you to Paystack…');
+    location.href=result.authorization_url;
+  }catch(error){
+    showView('billing');
+    note(message,error.message,true);
+  }
+}
+
+/* ------------------------------------------------------------------ password */
+
+$('passwordForm').onsubmit=async event=>{
+  event.preventDefault();
+  const message=$('pwMessage'),current=$('pwCurrent').value,next=$('pwNew').value,again=$('pwConfirm').value;
+  if(next!==again)return note(message,'The two new passwords do not match.',true);
+  $('pwSubmit').disabled=true;note(message,'Updating…');
+  try{
+    const response=await apiFetch('/api/auth/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:current,new_password:next})});
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||'The password could not be changed');
+    $('passwordForm').reset();
+    note(message,'Password updated. Other devices stay signed in until their session expires.');
+  }catch(error){
+    note(message,error.message,true);
+  }finally{$('pwSubmit').disabled=false}
+};
+
+/* --------------------------------------------------------------- housekeeping */
+
+$('logoutBtn').onclick=async()=>{
+  try{await apiFetch('/api/auth/logout',{method:'POST'})}catch{}
+  setToken('');
+  location.href='/';
+};
+
+$('forgetBtn').onclick=async()=>{
+  const message=$('forgetMessage');
+  note(message,'Signing out…');
+  try{await apiFetch('/api/auth/logout',{method:'POST'})}catch{}
+  setToken('');
+  try{localStorage.removeItem(PREFS_KEY)}catch{}
+  note(message,'Signed out. This browser keeps nothing about you now.');
+  setTimeout(()=>{location.href='/'},700);
+};
+
+$('resendBtn').onclick=async()=>{
+  const button=$('resendBtn');button.disabled=true;
+  try{
+    await apiFetch('/api/auth/resend-verification',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:me?me.email:''})});
+    button.textContent='Verification email sent';
+  }catch{button.textContent='Could not send — try again'}
+  finally{button.disabled=false}
+};
+
+$('refreshDevices').onclick=listDevices;
+$('refreshDiag').onclick=()=>health();
+
+$('cameraDevice').onchange=event=>{writePrefs({cameraId:event.target.value});note($('prefsMessage'),'Camera preference saved for this browser.')};
+$('micDevice').onchange=event=>{writePrefs({micId:event.target.value});note($('prefsMessage'),'Microphone preference saved for this browser.')};
+$('motionToggle').onchange=event=>{writePrefs({reduceMotion:event.target.checked});note($('prefsMessage'),event.target.checked?'Motion effects reduced.':'Motion effects restored.')};
+document.querySelectorAll('input[name=quality]').forEach(radio=>{
+  radio.onchange=()=>{writePrefs({quality:radio.value});note($('prefsMessage'),'Quality preset saved; it applies to your next enrolment.')};
+});
+
+/* ---------------------------------------------------------------- boot */
+
+loadAccount();loadAuthMethods();listDevices();applyPrefs();
+showView((location.hash||'#studio').slice(1));
+if(navigator.mediaDevices?.addEventListener)navigator.mediaDevices.addEventListener('devicechange',listDevices);
 if(new URLSearchParams(location.search).get('signin')){history.replaceState({},'',location.pathname);openAuth('login');}
 let media=null,pc=null,session=null,running=false,statsTimer=null,reconnects=0;
 let recorder=null,recordedChunks=[],recordUrl=null,recordedBlob=null,recordStarted=0,recordTimer=null;
@@ -133,7 +366,83 @@ async function health(){
     $('engineName').textContent=j.backend.toUpperCase();
     $('healthText').textContent=j.gpu?((j.provider?j.provider.toUpperCase():'GPU')+((j.accelerated===false)?' · CPU':' neural engine ready')):'Diagnostic transport mode';
     $('healthDot').style.background=(j.gpu&&j.accelerated!==false)?'#6ee7a5':(j.gpu?'#52d3ff':'#f59e0b');
-  }catch{$('healthText').textContent='Engine unavailable'}
+    reportDiagnostics(j);
+  }catch{
+    $('healthText').textContent='Engine unavailable';
+    reportDiagnostics(null);
+  }
+}
+
+/* The diagnostics card, written from the same payload that drives the engine chip. A
+ * deployment without swap weights reports `diagnostic` here, and that is stated in words
+ * rather than left for somebody to infer from a label. */
+function reportDiagnostics(j){
+  const say=(id,value)=>{$(id).textContent=value};
+  if(!j){
+    ['diagBackend','diagProvider','diagAccelerated','diagPeers','diagTurn','diagCalls','diagSelfVerify']
+      .forEach(id=>say(id,'\u2014'));
+    $('diagNote').textContent='The engine could not be reached, so nothing here can be reported.';
+    return;
+  }
+  say('diagBackend',j.backend);
+  say('diagProvider',j.provider||'none \u2014 CPU path');
+  say('diagAccelerated',j.accelerated===true?'yes':(j.accelerated===false?'no':'unknown'));
+  say('diagPeers',(j.active_peers||0)+' of '+(j.peer_capacity||0));
+  say('diagTurn',j.turn_configured?'configured':'not configured');
+  say('diagCalls',j.calls_configured?'configured':'not configured');
+  say('diagSelfVerify',j.self_verification?'required':'not required');
+  $('diagNote').textContent=j.backend==='diagnostic'
+    ?'This deployment runs the diagnostic backend: no licensed swap weights are installed, so frames are not being face-swapped. Everything else \u2014 enrolment, liveness, transport, recording, credits \u2014 is real and runs against this engine.'
+    :'Frames are being processed by '+j.backend+' using the '+((j.provider||'CPU').toUpperCase())+' provider.';
+}
+
+function recordedAudioConstraints(){
+  const audio={echoCancellation:true,noiseSuppression:true};
+  const chosen=readPrefs().micId;
+  if(chosen)audio.deviceId={exact:chosen};
+  return audio;
+}
+
+/* Email-verification links and the return from Paystack are handled by URL, not by a view:
+ * the link arrives with ?verify=, the payment with ?payment=return&reference=. Each lands
+ * on the page that owns it, which is Settings and Billing respectively. */
+async function verifyFromLink(){
+  const token=new URLSearchParams(location.search).get('verify');
+  if(!token)return;
+  history.replaceState({},'',location.pathname);
+  showView('studio');
+  try{
+    const r=await fetch('/api/auth/verify-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});
+    const j=await r.json();
+    if(!r.ok)throw Error(j.error||'This verification link is not valid.');
+    setToken(j.access_token);
+    await loadAccount();
+    status('Email verified. Your 7-day trial is active.');
+  }catch(error){
+    showView('settings');
+    note($('prefsMessage'),error.message,true);
+  }
+}
+
+async function verifyPaymentReturn(){
+  const params=new URLSearchParams(location.search);
+  const reference=params.get('reference');
+  if(params.get('payment')!=='return'||!reference)return;
+  history.replaceState({},'',location.pathname+'#billing');
+  showView('billing');
+  if(!accessToken)return openAuth('login');
+  note($('walletMessage'),'Confirming the Paystack payment\u2026');
+  try{
+    const r=await apiFetch('/api/payments/paystack/verify/'+encodeURIComponent(reference));
+    const j=await r.json();
+    if(!r.ok)throw Error(j.error||'The payment could not be verified.');
+    if(j.status==='success'){
+      note($('walletMessage'),j.kind==='topup'?'Payment confirmed. Your credits have been added.':'Payment confirmed. Live Pro is active.');
+      await loadBilling();
+    }else note($('walletMessage'),'Paystack reports this payment as '+j.status+'. Nothing has been charged.',true);
+  }catch(error){
+    note($('walletMessage'),error.message,true);
+  }
 }
 health();
 
@@ -142,11 +451,12 @@ $('enrollBtn').onclick=async()=>{
   const f=$('source').files[0];
   if(!f)return status('Choose a reference portrait.',true);
   if(!$('consent').checked)return status('Confirm self-only consent first.',true);
-  const d=new FormData();d.append('image',f);d.append('consent','true');d.append('quality',document.querySelector('input[name="quality"]:checked').value);
+  const d=new FormData();d.append('image',f);d.append('consent','true');d.append('quality',readPrefs().quality);
   status('Analyzing identity…');$('enrollBtn').disabled=true;
   try{const r=await apiFetch('/api/sessions',{method:'POST',body:d}),j=await r.json();
     if(!r.ok)throw Error(j.error||'Enrollment failed');
     session=j.session_id;status('Identity enrolled. Start your camera.');
+    if(j.expires_in)$('privacyTtl').textContent='Ends '+Math.round(j.expires_in/60)+' minutes after enrolling';
     $('p1').classList.add('active');$('p2').classList.add('active');
     if(media)$('goBtn').disabled=false;
   }catch(e){status(e.message,true)}finally{$('enrollBtn').disabled=false}
@@ -156,7 +466,19 @@ function status(t,error=false){$('status').textContent=t;$('status').style.color
 $('cameraBtn').onclick=async()=>{
   if(media){stopCamera();return}
   try{
-    media=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1920,max:1920},height:{ideal:1080,max:1080},frameRate:{ideal:30,max:30},facingMode:{ideal:cameraFacing}},audio:false});
+    const prefs=readPrefs();
+    const video={width:{ideal:1920,max:1920},height:{ideal:1080,max:1080},frameRate:{ideal:30,max:30},facingMode:{ideal:cameraFacing}};
+    if(prefs.cameraId)video.deviceId={exact:prefs.cameraId};
+    try{
+      media=await navigator.mediaDevices.getUserMedia({video,audio:false});
+    }catch(error){
+      // A saved device that is no longer plugged in must not be a camera that never starts:
+      // fall back to the default and say which device was missing.
+      if(!prefs.cameraId)throw error;
+      delete video.deviceId;
+      media=await navigator.mediaDevices.getUserMedia({video,audio:false});
+      note($('prefsMessage'),'The saved camera was not available, so the default is in use. Choose another in Settings.',true);
+    }
     $('video').srcObject=media;await $('video').play();
     $('cameraEmpty').style.display='none';$('cameraBadge').textContent='LIVE';$('cameraBadge').className='badge live';
     $('cameraBtn').textContent='Stop camera';$('flipBtn').disabled=false;$('p2').classList.add('active');$('goBtn').disabled=!session;
@@ -250,7 +572,7 @@ $('recordBtn').onclick=()=>recorder&&recorder.state==='recording'?stopRecording(
 async function startRecording(){
   const outputStream=$('output').srcObject;if(!outputStream)return status('Start transformation before recording.',true);
   recordedChunks=[];recordedBlob=null;if(recordUrl){URL.revokeObjectURL(recordUrl);recordUrl=null}$('recordDownload').hidden=true;$('shareBtn').hidden=true;
-  try{const tracks=[...outputStream.getVideoTracks()];if($('recordMic').checked){micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:false});tracks.push(...micStream.getAudioTracks())}const stream=new MediaStream(tracks);const mime=preferredMime();const options={videoBitsPerSecond:6_000_000,audioBitsPerSecond:128_000};if(mime)options.mimeType=mime;recorder=new MediaRecorder(stream,options);
+  try{const tracks=[...outputStream.getVideoTracks()];if($('recordMic').checked){micStream=await navigator.mediaDevices.getUserMedia({audio:recordedAudioConstraints(),video:false});tracks.push(...micStream.getAudioTracks())}const stream=new MediaStream(tracks);const mime=preferredMime();const options={videoBitsPerSecond:6_000_000,audioBitsPerSecond:128_000};if(mime)options.mimeType=mime;recorder=new MediaRecorder(stream,options);
     recorder.ondataavailable=e=>{if(e.data.size)recordedChunks.push(e.data)};
     recorder.onstop=finishRecording;recorder.start(1000);recordStarted=Date.now();
     $('recordBtn').textContent='■ Stop 00:00';$('recordBtn').classList.add('recording');
@@ -292,3 +614,5 @@ $('leaveCall').onclick=leaveCall;
 async function leaveCall(){callAudioTrack?.stop();callAudioTrack=callVideoTrack=null;if(callRoomInstance){await callRoomInstance.disconnect();callRoomInstance=null}$('remoteGrid').replaceChildren();$('callStatus').textContent='Not connected';resetCallUI()}
 function resetCallUI(){$('leaveCall').hidden=true;$('createCall').hidden=false;$('joinCall').hidden=false}
 window.addEventListener('beforeunload',()=>{if(recorder?.state==='recording')recorder.stop();if(recordUrl)URL.revokeObjectURL(recordUrl);micStream?.getTracks().forEach(t=>t.stop());media?.getTracks().forEach(t=>t.stop());wakeLock?.release();callRoomInstance?.disconnect();pc?.close()});
+
+verifyFromLink();verifyPaymentReturn();

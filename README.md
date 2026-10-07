@@ -610,6 +610,35 @@ a user chose, so the page builds nodes instead. `tests/test_admin.py` holds all 
 including a check that the payload never contains a password hash, a token hash, or a
 signing key.
 
+### The studio's three sections
+
+`/app` is organised into three sections, addressed by the URL hash so a link to one is
+shareable and the back button works:
+
+* **Studio** (`#studio`) — the workbench: the 01/02/03 strip, the identity column, the camera
+  and transformed canvases, session telemetry, the quality trainer and the call dock.
+* **Billing** (`#billing`) — the balance and what it is made of, the plan with its real prices,
+  the credit packs, and this account's own ledger. Every figure comes from
+  `/api/billing/account`, which is the same payload that decides what Paystack is asked to
+  charge. Choosing a pack or a plan sends you to Paystack's own checkout and back.
+* **Settings** (`#settings`) — the account (email, verification, role), security (change
+  password, when this session ends, sign out), preferences (quality preset, camera and
+  microphone, reduced motion — stored in this browser, deliberately not account settings),
+  privacy and data, and an engine/diagnostics card that reports what the backend actually is.
+
+The rule the layout is built on is that a thing is rendered in exactly one place. The balance
+is on Billing and the top bar only links to it; the plan is on Billing and Settings links to
+it; no price is typed into the page or the script, and a test rejects one that is.
+
+Two bugs came out of building it. The packs used to be hidden entirely when Paystack was not
+configured, so a deployment without a payment key had no payment UI at all and looked like a
+missing feature rather than a missing setting — they are now always shown, disabled, with the
+reason and the setting that fixes it. And a token that the server no longer accepts (the
+account was removed, or the database was rebuilt) made every authenticated call answer 401
+while the page carried on looking signed in: the balance never filled in and checkout did
+nothing. A 401 on a request that carried a token now ends that session and returns the visitor
+to the sign-in card.
+
 ### Sign-in behaviour worth knowing
 
 **Unknown addresses cost the same as wrong passwords.** `authenticate()` used to return
@@ -630,6 +659,13 @@ budget is spent, **even the correct password is refused until the window passes*
 someone who knows an address can deliberately trigger that lockout. The budget is checked
 before the password because that is the only ordering that slows guessing down. Raise
 `login_limit_per_hour` to trade protection for availability, or lower it to do the reverse.
+
+**The password can be changed from Settings, and open sessions survive it.** `POST
+/api/auth/password` requires the current password — a session token alone must not be enough to
+take an account away from its owner — and applies the same length rule as sign-up. Sessions
+already open are deliberately *not* revoked: they are signed tokens with nothing to revoke, and
+the page says so rather than implying otherwise, so a stolen laptop keeps working until its
+token expires.
 
 **One-click demo sign-in is a flag, and it will not run on https.** Setting
 `STUDIO_DEMO_LOGIN=1` puts two buttons on the login card — a customer and an administrator

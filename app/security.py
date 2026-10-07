@@ -94,6 +94,34 @@ def authenticate(email: str, password: str):
             "role": user.get("role") or "user"}
 
 
+def change_password(user_id: str, current_password: str, new_password: str) -> None:
+    """Replace one account's password, having proved the current one.
+
+    The current password is required and verified rather than merely present in the session:
+    a token left on an unlocked laptop should not be enough to lock its owner out of their
+    own account. Everything else follows the rules the sign-up form already applies, since a
+    password that could not have been registered should not become reachable by changing to
+    it.
+
+    Sessions that are already open are deliberately not revoked. They are signed tokens with
+    nothing to revoke, and pretending otherwise would be worse than saying so: the Settings
+    page tells the account holder exactly that, and the token expires on its own.
+    """
+    user = database.one("SELECT password_hash FROM users WHERE id=? AND disabled=0", (user_id,))
+    if not user:
+        raise PermissionError("Authentication required")
+    try:
+        hasher.verify(user["password_hash"], current_password)
+    except VerifyMismatchError:
+        raise PermissionError("That is not your current password") from None
+    if len(new_password) < MINIMUM_PASSWORD:
+        raise ValueError(f"Password must contain at least {MINIMUM_PASSWORD} characters")
+    if new_password == current_password:
+        raise ValueError("Choose a password different from the current one")
+    database.execute("UPDATE users SET password_hash=? WHERE id=?",
+                     (hasher.hash(new_password), user_id))
+
+
 def access_token(user):
     now = int(time.time())
     return jwt.encode({"sub":user["id"],"email":user["email"],"iat":now,"nbf":now-2,

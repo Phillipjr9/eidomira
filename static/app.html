@@ -2,21 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Studio · Eidomira Live</title>
-<meta name="description" content="Private Eidomira Live workspace: enroll an identity, run live transformation, record, and call.">
-<meta name="theme-color" content="#08080d">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Eidomira Live · Studio</title>
+<meta name="description" content="Run one ephemeral identity session: enrol, pass liveness, and transform live.">
 <meta name="color-scheme" content="dark">
-<meta name="robots" content="noindex">
+<link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-<link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="stylesheet" href="/static/fonts.css">
 <link rel="stylesheet" href="/static/tokens.css">
 <link rel="stylesheet" href="/static/studio.css">
 </head>
-
 <body class="workspace">
+
+<div class="fx-spark" aria-hidden="true"></div>
 <div class="fx-vignette" aria-hidden="true"></div>
 <div class="fx-grain" aria-hidden="true"></div>
 
@@ -31,38 +30,34 @@
     </a>
     <span class="bar__spacer"></span>
     <span class="health" aria-live="polite"><i id="healthDot"></i><span id="healthText">Checking engine…</span></span>
-    <span class="credits"><b id="creditBalance">—</b><span>credits</span></span>
-    <button class="accountButton" id="accountBtn" type="button">Account</button>
+    <a class="credits" id="creditChip" href="#billing" title="See your balance and buy credits">
+      <b id="creditBalance">—</b><span>credits</span>
+    </a>
+    <a class="accountChip" id="accountChip" href="#settings">
+      <span class="accountChip__dot" aria-hidden="true"></span>
+      <b id="chipEmail">Account</b>
+    </a>
   </div>
 </header>
 
-<!-- ══ Account ═════════════════════════════════════════════════════════════ -->
-<section class="accountBar" id="accountBar" hidden>
-  <div class="accountBar__inner">
-    <span class="accountBar__who">
-      <b>Signed in</b>
-      <strong id="accountEmail">—</strong>
-    </span>
-    <span class="accountBar__plan">
-      <span class="pill" id="accountPlan">NO PLAN</span>
-      <button class="btn btn--primary" id="upgradeBtn" type="button">Upgrade to Live Pro</button>
-      <button class="btn btn--ghost" id="annualBtn" type="button">Or annual · save 17%</button>
-      <button class="btn btn--ghost" id="buyCreditsBtn" type="button">Buy credits</button>
-      <a class="textButton" id="adminLink" href="/admin" hidden>Owner console</a>
-      <button class="textButton" id="logoutBtn" type="button">Sign out</button>
-    </span>
-  </div>
-</section>
-
-<!-- ══ Progress ════════════════════════════════════════════════════════════ -->
-<div class="progress" aria-label="Session progress">
-  <div id="p1"><b>01</b><span>Upload identity<small>One clear portrait of yourself</small></span></div>
-  <div id="p2"><b>02</b><span>Pass liveness<small>Confirm a real person is present</small></span></div>
-  <div id="p3"><b>03</b><span>Transform live<small>Preview, record or publish</small></span></div>
-</div>
+<!-- ══ Sections ════════════════════════════════════════════════════════════ -->
+<nav class="tabs" id="tabs" aria-label="Studio sections">
+  <a class="tab" href="#studio" data-view="studio">Studio</a>
+  <a class="tab" href="#billing" data-view="billing">Billing</a>
+  <a class="tab" href="#settings" data-view="settings">Settings</a>
+  <a class="tab tab--out" id="adminLink" href="/admin" hidden>Owner console ↗</a>
+</nav>
 
 <main>
-<section class="studioSection" id="studioSection">
+
+<!-- ── Studio ─────────────────────────────────────────────────────────────── -->
+<section class="view" id="viewStudio" aria-label="Studio">
+  <div class="progress" aria-label="Session progress">
+    <div id="p1"><b>01</b><span>Upload identity<small>One clear portrait of yourself</small></span></div>
+    <div id="p2"><b>02</b><span>Pass liveness<small>Confirm a real person is present</small></span></div>
+    <div id="p3"><b>03</b><span>Transform live<small>Preview, record or publish</small></span></div>
+  </div>
+
   <div class="studioHeading">
     <div>
       <span class="pill">Live studio</span>
@@ -81,10 +76,10 @@
   <div class="workbench">
     <!-- ── Identity column ─────────────────────────────────────────────── -->
     <div class="workbench__side">
-      <section class="panel">
+      <section class="panel" id="studioSection">
         <div class="sectionHead">
           <div>
-            <span class="microLabel">Your identity</span>
+            <span class="microLabel">Step 1 · Identity</span>
             <h3>Who will appear?</h3>
           </div>
           <button class="textButton" id="resetBtn" type="button">Reset</button>
@@ -98,13 +93,6 @@
           <img id="sourcePreview" alt="Reference portrait preview">
         </label>
 
-        <div class="qualityPick">
-          <span>Quality</span>
-          <label><input type="radio" name="quality" value="speed"><b>Speed</b><small>Lowest latency</small></label>
-          <label><input type="radio" name="quality" value="balanced" checked><b>Balanced</b><small>Recommended</small></label>
-          <label><input type="radio" name="quality" value="quality"><b>Quality</b><small>Most detail</small></label>
-        </div>
-
         <label class="consent">
           <input type="checkbox" id="consent">
           <span><b>Self-only consent</b>I confirm this is my own face, or a likeness I have explicit permission to use, and I consent to processing for this session.</span>
@@ -112,6 +100,11 @@
 
         <button class="btn btn--primary btn--block" id="enrollBtn" type="button">Enroll identity <span class="btn__arrow" aria-hidden="true">→</span></button>
         <div class="status" id="status" role="status" aria-live="polite">Choose a reference portrait to begin.</div>
+
+        <p class="settingLine">
+          Quality preset <b id="qualityNow">Balanced</b>
+          <a class="textButton" href="#settings">Change in Settings</a>
+        </p>
 
         <div class="safetyList">
           <div><i aria-hidden="true">✓</i><span><b>Active liveness</b>Blocks static-photo impersonation.</span></div>
@@ -125,7 +118,7 @@
     <div class="videoWorkspace">
       <div class="videoHeader">
         <div>
-          <span class="microLabel">Live canvas</span>
+          <span class="microLabel">Step 2 &amp; 3 · Live canvas</span>
           <b>Original and transformed</b>
         </div>
         <div class="videoLegend">
@@ -186,65 +179,219 @@
         <button id="installBtn" type="button" hidden>Install app</button>
       </div>
 
-      <section class="wallet" id="walletPanel" aria-label="Credits">
-        <div class="walletHead">
-          <span class="microLabel">Credits</span>
-          <b id="walletState">Loading</b>
-        </div>
+      <div class="dash">
+        <section class="telemetry" aria-label="Session telemetry">
+          <div class="dashHead"><span class="microLabel">Session</span></div>
+          <div><span>Engine</span><b id="engineName">—</b></div>
+          <div><span>Latency</span><b id="latency">— ms</b></div>
+          <div><span>Frame</span><b id="frameCost">— ms</b></div>
+          <div><span>Stream</span><b id="fps">0 FPS</b></div>
+          <div><span>Dropped</span><b id="dropped">0</b></div>
+          <div><span>Inference</span><b id="inferenceSize">—</b></div>
+          <div><span>Verification</span><b id="verified">Pending</b></div>
+        </section>
 
-        <div class="walletTotal"><b id="walletTotal">—</b><span>remaining</span></div>
-
-        <div class="walletSplit">
-          <span>Plan <b id="walletPlanCredits">0</b></span>
-          <span>Top-up <b id="walletTopupCredits">0</b></span>
-          <span>Used <b id="walletUsedCredits">0</b></span>
-        </div>
-
-        <p class="walletNote" id="walletExpiry" hidden></p>
-        <div class="walletPacks" id="walletPacks"></div>
-        <p class="walletNote" id="walletMessage" role="status" aria-live="polite"></p>
-
-        <details class="walletHistory">
-          <summary>Recent activity</summary>
-          <ul id="walletLedger"></ul>
-        </details>
-      </section>
-
-      <section class="telemetry" aria-label="Session telemetry">
-        <div><span>Engine</span><b id="engineName">—</b></div>
-        <div><span>Latency</span><b id="latency">— ms</b></div>
-        <div><span>Frame</span><b id="frameCost">— ms</b></div>
-        <div><span>Stream</span><b id="fps">0 FPS</b></div>
-        <div><span>Dropped</span><b id="dropped">0</b></div>
-        <div><span>Inference</span><b id="inferenceSize">—</b></div>
-        <div><span>Verification</span><b id="verified">Pending</b></div>
-      </section>
-
-      <section class="trainer" aria-label="Quality trainer">
-        <div class="trainerHead">
-          <span class="microLabel">Quality trainer</span>
-          <b id="trainerState" class="off">Idle</b>
-        </div>
-        <p id="trainerSummary">Waiting for the first measured frame.</p>
-        <ul id="trainerList"></ul>
-      </section>
+        <section class="trainer" aria-label="Quality trainer">
+          <div class="trainerHead">
+            <span class="microLabel">Quality trainer</span>
+            <b id="trainerState" class="off">Idle</b>
+          </div>
+          <p id="trainerSummary">Waiting for the first measured frame.</p>
+          <ul id="trainerList"></ul>
+        </section>
+      </div>
 
       <section class="callDock">
-        <div>
+        <div class="dashHead">
           <span class="microLabel">Eidomira calls</span>
           <strong>Host or join with transformed video</strong>
         </div>
-        <input id="callName" placeholder="Display name" maxlength="48" aria-label="Display name">
-        <input id="callRoom" placeholder="Room code" maxlength="64" aria-label="Room code">
-        <button type="button" id="createCall">Create call</button>
-        <button type="button" id="joinCall">Join</button>
-        <button type="button" id="leaveCall" hidden>Leave</button>
-        <span id="callStatus">Not connected</span>
+        <div class="callDock__row">
+          <input id="callName" placeholder="Display name" maxlength="48" aria-label="Display name">
+          <input id="callRoom" placeholder="Room code" maxlength="64" aria-label="Room code">
+          <button type="button" id="createCall">Create call</button>
+          <button type="button" id="joinCall">Join</button>
+          <button type="button" id="leaveCall" hidden>Leave</button>
+          <span id="callStatus">Not connected</span>
+        </div>
         <div id="remoteGrid"></div>
       </section>
     </div>
   </div>
 </section>
+
+<!-- ── Billing ────────────────────────────────────────────────────────────── -->
+<section class="view" id="viewBilling" aria-label="Billing" hidden>
+  <div class="viewHead">
+    <div>
+      <span class="pill">Billing</span>
+      <h2>Credits, plan and <span class="serif">payment</span></h2>
+      <p>
+        Card payments are handled by Paystack. Choosing a pack or a plan opens Paystack's own
+        checkout page — this application never sees or stores your card details.
+      </p>
+    </div>
+    <span class="badge off" id="walletState">Loading</span>
+  </div>
+
+  <div class="billing">
+    <section class="card card--balance" aria-label="Balance">
+      <span class="microLabel">Balance</span>
+      <div class="balanceTotal"><b id="walletTotal">—</b><span>credits remaining</span></div>
+      <div class="balanceSplit">
+        <div><span>Plan credits</span><b id="walletPlanCredits">0</b></div>
+        <div><span>Top-up credits</span><b id="walletTopupCredits">0</b></div>
+        <div><span>Used all time</span><b id="walletUsedCredits">0</b></div>
+      </div>
+      <p class="note" id="walletExpiry" hidden></p>
+      <p class="note">Plan credits are usable while the plan is active. Top-up credits stay usable for 12 months from purchase, and are spent after plan credits.</p>
+    </section>
+
+    <section class="card card--plan" aria-label="Plan">
+      <div class="cardHead">
+        <span class="microLabel">Plan</span>
+        <span class="pill" id="accountPlan">NO PLAN</span>
+      </div>
+      <h3 id="planName">Eidomira Live Pro</h3>
+      <p class="planPrice"><b id="planPriceNgn">—</b><span>per month · <i id="planPriceUsd">—</i></span></p>
+      <p class="note" id="planNote">Checking your plan…</p>
+      <ul class="planFeatures" id="planFeatures"></ul>
+      <div class="cardActions">
+        <button class="btn btn--primary" id="upgradeBtn" type="button">Upgrade monthly</button>
+        <button class="btn btn--ghost" id="annualBtn" type="button">Annual · save 17%</button>
+      </div>
+    </section>
+
+    <section class="card card--packs" aria-label="Buy credits">
+      <div class="cardHead">
+        <span class="microLabel">Buy credits</span>
+        <span class="badge" id="paystackState">Checking</span>
+      </div>
+      <p class="note" id="paystackNote"></p>
+      <div class="packGrid" id="walletPacks"></div>
+      <p class="walletNote" id="walletMessage" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card card--history" aria-label="Credit activity">
+      <span class="microLabel">Activity</span>
+      <ul class="ledger" id="walletLedger"></ul>
+    </section>
+  </div>
+</section>
+
+<!-- ── Settings ───────────────────────────────────────────────────────────── -->
+<section class="view" id="viewSettings" aria-label="Settings" hidden>
+  <div class="viewHead">
+    <div>
+      <span class="pill">Settings</span>
+      <h2>Your account and <span class="serif">this browser</span></h2>
+      <p>Everything the studio keeps about you, and everything it keeps on this device.</p>
+    </div>
+  </div>
+
+  <div class="settings">
+    <section class="card" aria-label="Account">
+      <span class="microLabel">Account</span>
+      <dl class="facts">
+        <div><dt>Email</dt><dd><b id="accountEmail">—</b></dd></div>
+        <div><dt>Verified</dt><dd><b id="accountVerified">—</b></dd></div>
+        <div><dt>Role</dt><dd><b id="accountRole">—</b></dd></div>
+      </dl>
+      <div class="cardActions">
+        <button class="btn btn--ghost" id="resendBtn" type="button" hidden>Resend verification email</button>
+        <a class="btn btn--ghost" href="#billing">Manage plan and credits</a>
+      </div>
+      <p class="note">Your plan, your balance and every credit movement are on the Billing page — this page never repeats them.</p>
+    </section>
+
+    <section class="card" aria-label="Security">
+      <span class="microLabel">Security</span>
+      <dl class="facts">
+        <div><dt>This session ends</dt><dd><b id="sessionExpiry">—</b></dd></div>
+      </dl>
+
+      <form class="form" id="passwordForm">
+        <h3>Change password</h3>
+        <label>Current password<input id="pwCurrent" type="password" autocomplete="current-password" required></label>
+        <label>New password<input id="pwNew" type="password" autocomplete="new-password" minlength="10" required></label>
+        <label>Repeat new password<input id="pwConfirm" type="password" autocomplete="new-password" minlength="10" required></label>
+        <button class="btn btn--primary" id="pwSubmit" type="submit">Update password</button>
+        <p class="note" id="pwMessage" role="status" aria-live="polite"></p>
+      </form>
+
+      <p class="note">
+        Changing your password does not sign out sessions that are already open — they are
+        signed tokens, not lookups — so any other device you are signed in on stays signed in
+        until its session expires, within the hour shown above.
+      </p>
+      <div class="cardActions">
+        <button class="btn btn--ghost" id="logoutBtn" type="button">Sign out of this browser</button>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Preferences">
+      <span class="microLabel">Preferences</span>
+      <h3>Applied to your next session</h3>
+
+      <div class="qualityPick">
+        <span>Quality preset</span>
+        <label><input type="radio" name="quality" value="speed"><b>Speed</b><small>Lowest latency</small></label>
+        <label><input type="radio" name="quality" value="balanced" checked><b>Balanced</b><small>Recommended</small></label>
+        <label><input type="radio" name="quality" value="quality"><b>Quality</b><small>Most detail</small></label>
+      </div>
+
+      <label class="selectRow">Camera
+        <select id="cameraDevice"><option value="">Default camera</option></select>
+      </label>
+      <label class="selectRow">Microphone
+        <select id="micDevice"><option value="">Default microphone</option></select>
+      </label>
+      <label class="checkRow"><input id="motionToggle" type="checkbox"> Reduce motion effects</label>
+      <p class="note" id="deviceNote">Device names appear once you have allowed camera access at least once in this browser.</p>
+      <p class="note" id="prefsMessage" role="status" aria-live="polite"></p>
+      <div class="cardActions">
+        <button class="btn btn--ghost" id="refreshDevices" type="button">Look for devices</button>
+      </div>
+      <p class="note">Preferences are stored in this browser only. They are not an account setting and do not follow you to another device.</p>
+    </section>
+
+    <section class="card" aria-label="Privacy and data">
+      <span class="microLabel">Privacy &amp; data</span>
+      <dl class="facts">
+        <div><dt>Frames</dt><dd>Processed in memory, never written to disk</dd></div>
+        <div><dt>Identity session</dt><dd>Expires automatically <b id="privacyTtl">after enrolling</b></dd></div>
+        <div><dt>Consent</dt><dd id="consentState">Required per session, and recorded</dd></div>
+      </dl>
+      <p class="note">
+        Nothing in this browser outlives your sign-out, and the account itself holds only the
+        email address, the password hash, credits and the ledger entries you can see on
+        Billing.
+      </p>
+      <div class="cardActions">
+        <button class="btn btn--ghost" id="forgetBtn" type="button">Forget this browser</button>
+      </div>
+      <p class="note" id="forgetMessage" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card" aria-label="Engine and diagnostics">
+      <span class="microLabel">Engine &amp; diagnostics</span>
+      <dl class="facts">
+        <div><dt>Backend</dt><dd><b id="diagBackend">—</b></dd></div>
+        <div><dt>Provider</dt><dd><b id="diagProvider">—</b></dd></div>
+        <div><dt>Accelerated</dt><dd><b id="diagAccelerated">—</b></dd></div>
+        <div><dt>Peers</dt><dd><b id="diagPeers">—</b></dd></div>
+        <div><dt>Relay</dt><dd><b id="diagTurn">—</b></dd></div>
+        <div><dt>Calls</dt><dd><b id="diagCalls">—</b></dd></div>
+        <div><dt>Self-verification</dt><dd><b id="diagSelfVerify">—</b></dd></div>
+      </dl>
+      <p class="note" id="diagNote"></p>
+      <div class="cardActions">
+        <button class="btn btn--ghost" id="refreshDiag" type="button">Check again</button>
+      </div>
+    </section>
+  </div>
+</section>
+
 </main>
 
 <footer>
@@ -253,7 +400,7 @@
     <span class="footer__links">
       <a href="/">Landing page</a>
       <a href="/api/docs">API docs</a>
-      <a href="/" >Consent policy</a>
+      <a href="/">Consent policy</a>
     </span>
   </div>
 </footer>

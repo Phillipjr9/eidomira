@@ -14,7 +14,7 @@ from aiortc import RTCPeerConnection, RTCSessionDescription
 from app.config import DEVELOPMENT_AUTH_SECRET, settings
 from app.ice import rtc_configuration
 from app.calls import create_room_name, create_call_token
-from app.security import register, authenticate, access_token, optional_user, require_admin, issue_email_token, verify_email_token
+from app.security import register, authenticate, access_token, change_password, optional_user, authenticated_user, require_admin, issue_email_token, verify_email_token
 from app.database import database
 from app.mailer import send_verification
 from app.billing import PLAN, TOOLS, create_trial, account as billing_account, quote as billing_quote
@@ -63,6 +63,11 @@ class CallJoinRequest(CallRequest):
 class AuthRequest(BaseModel):
     email: str
     password: str
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class DemoLoginRequest(BaseModel):
@@ -362,6 +367,19 @@ def auth_demo_login(request: DemoLoginRequest):
                         httponly=True, secure=settings.public_url.startswith("https://"),
                         samesite="lax", path="/")
     return response
+
+
+@app.post("/api/auth/password")
+def auth_change_password(request: PasswordChangeRequest, user=Depends(authenticated_user)):
+    """Change the signed-in account's password. See app.security.change_password for why the
+    current one is required, and why open sessions are left alone."""
+    try:
+        change_password(user["id"], request.current_password, request.new_password)
+    except PermissionError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=401)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return {"ok": True, "message": "Password updated"}
 
 
 @app.get("/api/auth/me")
