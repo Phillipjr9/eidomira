@@ -12,7 +12,9 @@ licensed-models/
 *.pem
 # Written at runtime: the trainer's per-session reports, and the settings the offline
 # trainer measured. Both are regenerated, and neither should be committed by accident.
-reports/
+reports/*
+# ...except the sample in the README, so the format is documented rather than described.
+!reports/example-session-report.md
 data/tuned_defaults.json
 *.log
 .DS_Store

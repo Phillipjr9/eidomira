@@ -380,6 +380,45 @@ def test_a_short_session_is_not_reported_as_zero_minutes():
     assert "seconds" in trainer.report()
 
 
+def test_a_defect_the_trainer_fixed_is_not_listed_as_unfixable():
+    """Found by reading a generated report: it listed colour_mismatch under "what no
+    setting can fix" while the measurements above it showed the fix."""
+    trainer = mismatch_trainer(tone_transfer_strength=.5)
+    for _ in range(3):
+        observe(trainer, colour=8.0)
+
+    assert trainer.adjustments[0].kept is True
+    assert trainer.count("colour_mismatch") == 1, "the defect should still be in the ledger"
+    assert trainer._no_setting_fixed() == []
+
+    report = trainer.report()
+    assert "What no setting fixed" not in report
+
+
+def test_a_defect_nothing_could_fix_is_listed_with_the_number_of_attempts():
+    trainer = mismatch_trainer(tone_transfer_strength=.5)
+    for _ in range(12):
+        observe(trainer, colour=31.9)
+
+    unfixed = trainer._no_setting_fixed()
+    assert [mistake.kind for mistake, _ in unfixed] == ["colour_mismatch"]
+    assert unfixed[0][1] >= 1, "a defect that was fought should say how often"
+
+    report = trainer.report()
+    assert "What no setting fixed" in report
+    assert "reverted each one" in report
+
+
+def test_a_defect_with_no_knob_says_so_rather_than_claiming_an_attempt():
+    trainer = Trainer(sample_every=1)
+    observe(trainer, colour=None, seam=None, mean_abs=0.0)      # nothing changed at all
+
+    assert [mistake.kind for mistake, _ in trainer._no_setting_fixed()] == ["no_change"]
+    report = trainer.report()
+    assert "no setting addresses this" in report
+    assert "reverted each one" not in report
+
+
 def test_the_report_says_what_it_cannot_do():
     """The honesty boundary belongs in the artefact a person reads, not only in a README."""
     report = Trainer().report()

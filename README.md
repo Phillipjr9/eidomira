@@ -311,7 +311,7 @@ this loop — so anything claiming otherwise would be inventing numbers. What it
 | **Monitor** | Every sampled frame is scored with the same metrics as `tools/quality_report.py`, and each defect is recorded with the measurement that produced it: a colour mismatch, a visible edge, a frame that claimed a face and changed nothing. |
 | **Tune** | When a measured defect has a knob that addresses it, it moves one step, then *verifies* the change against later samples and reverts it if the metric did not improve. A knob reverted twice is locked for the session, and a reverted knob gets a cooldown — otherwise the trainer re-applies the change it just disproved and spends the session oscillating. |
 | **Repair** | A stage that reports a fault is switched off rather than run on every remaining frame, and recorded as a defect. A parser that keeps returning no face pixels falls back to the box mask rather than compositing nothing. |
-| **Report** | `reports/<session>-<time>.md`: what was wrong, what changed and why, what was tried and reverted, what is locked, and what no setting can fix. |
+| **Report** | `reports/<session>-<time>.md`: what was wrong, what changed and why, what was tried and reverted with the numbers, what is locked, and what no setting fixed. `reports/example-session-report.md` is a real one, from a session where the engine leaves the swapped face 30 levels dark. |
 
 The panel in the studio (`/app`) shows the same thing live, over the telemetry channel.
 

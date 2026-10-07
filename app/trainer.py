@@ -74,6 +74,14 @@ COOLDOWN_SAMPLES = 6
 LOCK_AFTER_REVERTS = 2
 MAX_ADJUSTMENTS = 40
 
+#: Which knob objective addresses which defect, so the report can say honestly whether a
+#: defect was left alone or fought and won. A defect with no objective has no knob at all.
+KIND_OBJECTIVES = {
+    "colour_mismatch": "colour",
+    "visible_edge": "seam",
+    "over_budget": "frame_ms",
+}
+
 
 @dataclass(frozen=True)
 class Mistake:
@@ -494,14 +502,25 @@ class Trainer:
                              else f"- `{name}`")
             lines.append("")
 
-        unresolved = [m for m in self.mistakes if m.severity == "critical"] or self.mistakes
-        if unresolved:
-            lines += ["## What no setting can fix", "",
-                      "These were reported but cannot be tuned away, because each needs a "
-                      "change in the code or a different model:", ""]
-            for mistake in unresolved:
-                lines.append(f"- {mistake.kind}: {mistake.summary}")
-            lines.append("")
+        unfixed = self._no_setting_fixed()
+        if unfixed:
+            lines += ["## What no setting fixed", "",
+                      "Reported, and either nothing here addresses them or every change the "
+                      "trainer tried was reverted:", ""]
+            for mistake, attempts in unfixed:
+                if attempts:
+                    tail = (f"tried {attempts} setting change(s) and reverted each one, so "
+                            "this needs a change in the code or a different model")
+                else:
+                    tail = ("no setting addresses this, so it needs a change in the code or "
+                            "a different model")
+                lines.append(f"- {mistake.kind}: {mistake.summary} — {tail}")
+            lines += [
+                "",
+                "A defect the trainer fixed is deliberately not listed here: it belongs in "
+                "the section above, with the measurement that shows the fix.",
+                "",
+            ]
 
         lines += [
             "## What this report is not", "",
@@ -510,6 +529,20 @@ class Trainer:
             "improves the network itself.",
         ]
         return "\n".join(lines)
+
+    def _no_setting_fixed(self) -> list[tuple[Mistake, int]]:
+        """Defects that survived the session, with how many changes were tried against them.
+
+        A defect is only "unfixed" if no change aimed at it was kept. Listing one that the
+        trainer just measured a fix for would be the report contradicting itself.
+        """
+        survivors = []
+        for mistake in self.mistakes:
+            objective = KIND_OBJECTIVES.get(mistake.kind)
+            attempts = [a for a in self.adjustments if objective and a.objective == objective]
+            if objective is None or not any(a.kept for a in attempts):
+                survivors.append((mistake, len(attempts)))
+        return survivors
 
     def write_report(self, directory: Path | str | None = None) -> Path | None:
         """Write the report once. Returns the path, or None when there is nowhere to write."""
