@@ -466,6 +466,382 @@
   }
 
   /* ---------------------------------------------------------------------
+     On-device lab: real camera + locally computed face mesh
+     The engine and model are only fetched after an explicit click, every
+     failure path degrades to copy rather than a broken panel, and the
+     camera track is always released on stop.
+     --------------------------------------------------------------------- */
+  const lab = $("#lab");
+  if (lab) {
+    const video = $("#labVideo");
+    const canvas = $("#labCanvas");
+    const idle = $("#labIdle");
+    const startBtn = $("#labStart");
+    const stopBtn = $("#labStop");
+    const status = $("#labStatus");
+    const badge = $("#labBadge");
+    const studioBtn = $("#labStudio");
+    const modeButtons = [$("#labModeMesh"), $("#labModeContour"), $("#labModePoints")];
+    const ctx = canvas.getContext("2d");
+
+    const readouts = {
+      points: $("#labPoints"),
+      fps: $("#labFps"),
+      ms: $("#labMs"),
+      blinkL: $("#labBlinkL"),
+      blinkR: $("#labBlinkR"),
+      smile: $("#labSmile"),
+      blinkLBar: $("#labBlinkLBar"),
+      blinkRBar: $("#labBlinkRBar"),
+      smileBar: $("#labSmileBar"),
+    };
+
+    // Pinned engine. The first entry is the version whose API these calls were written
+    // against; the second is a fallback if the CDN is unreachable or the tag is pulled.
+    const ENGINE_CANDIDATES = [
+      { module: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/vision_bundle.mjs", wasm: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm" },
+      { module: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/vision_bundle.mjs", wasm: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm" },
+    ];
+    const MODEL = "/models/face_landmarker.task";
+
+    let landmarker = null;
+    let engineApi = null; // the loaded module's FaceLandmarker class, for its static guides
+    let pxScale = 1;      // canvas device pixels per CSS pixel
+    let lastStamp = 0;    // MediaPipe requires strictly increasing timestamps
+    let stream = null;
+    let raf = 0;
+    let mode = "mesh";
+    let lastVideoTime = -1;
+    let lastInferMs = 0;
+    let fpsSmooth = 0;
+    let lastFpsStamp = 0;
+    let stopped = true;
+
+    const say = (message, kind = "") => {
+      if (!status) return;
+      status.innerHTML = message;
+      status.className = `lab__status${kind ? ` is-${kind}` : ""}`;
+    };
+
+    function setMode(next) {
+      mode = next;
+      modeButtons.forEach((button, index) => {
+        const names = ["mesh", "contour", "points"];
+        button?.setAttribute("aria-pressed", String(names[index] === next));
+      });
+    }
+
+    function sizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const dpr = Math.min(2, devicePixelRatio || 1);
+      const width = Math.round(rect.width * dpr);
+      const height = Math.round(rect.height * dpr);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      pxScale = width / rect.width;
+    }
+
+    /** Draws one connection list as a polyline in normalised coordinates. */
+    function path(landmarks, connections, scaleX, scaleY) {
+      for (const { start, end } of connections) {
+        const a = landmarks[start];
+        const b = landmarks[end];
+        if (!a || !b) continue;
+        ctx.moveTo(a.x * scaleX, a.y * scaleY);
+        ctx.lineTo(b.x * scaleX, b.y * scaleY);
+      }
+    }
+
+    function draw(result) {
+      const { width, height } = canvas;
+      const s = pxScale || 1;
+      ctx.clearRect(0, 0, width, height);
+
+      const faces = result?.faceLandmarks || [];
+      if (!faces.length) return;
+
+      const lm = faces[0];
+      const api = engineApi;
+      const gradient = ctx.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, "rgba(139,108,255,0.95)");
+      gradient.addColorStop(0.55, "rgba(82,211,255,0.85)");
+      gradient.addColorStop(1, "rgba(255,143,196,0.75)");
+
+      if (mode === "points") {
+        ctx.fillStyle = gradient;
+        for (const point of lm) {
+          ctx.beginPath();
+          ctx.arc(point.x * width, point.y * height, 1.5 * s, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        const tesselation = api?.FACE_LANDMARKS_TESSELATION;
+        if (mode === "mesh" && tesselation) {
+          ctx.strokeStyle = "rgba(182,163,255,0.28)";
+          ctx.lineWidth = 1 * s;
+          ctx.beginPath();
+          path(lm, tesselation, width, height);
+          ctx.stroke();
+        }
+
+        ctx.strokeStyle = gradient;
+        ctx.lineWidth = 1.6 * s;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        const detail = [
+          api?.FACE_LANDMARKS_CONTOURS,
+          api?.FACE_LANDMARKS_LEFT_EYE,
+          api?.FACE_LANDMARKS_RIGHT_EYE,
+          api?.FACE_LANDMARKS_LEFT_EYEBROW,
+          api?.FACE_LANDMARKS_RIGHT_EYEBROW,
+          api?.FACE_LANDMARKS_LIPS,
+        ];
+        for (const list of detail) if (list) path(lm, list, width, height);
+        ctx.stroke();
+      }
+
+      // Iris accents — the points a live session tracks most closely.
+      ctx.fillStyle = "rgba(110,231,183,0.95)";
+      for (const index of [468, 473, 477, 159, 386]) {
+        const point = lm[index];
+        if (!point) continue;
+        ctx.beginPath();
+        ctx.arc(point.x * width, point.y * height, 2.6 * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Tracking reticle around the face
+      let minX = 1, minY = 1, maxX = 0, maxY = 0;
+      for (const point of lm) {
+        if (point.x < minX) minX = point.x;
+        if (point.x > maxX) maxX = point.x;
+        if (point.y < minY) minY = point.y;
+        if (point.y > maxY) maxY = point.y;
+      }
+      const pad = 0.045;
+      const x0 = Math.max(0, minX - pad) * width;
+      const y0 = Math.max(0, minY - pad) * height;
+      const x1 = Math.min(1, maxX + pad) * width;
+      const y1 = Math.min(1, maxY + pad) * height;
+      const arm = Math.min(26 * s, (x1 - x0) * 0.22);
+      ctx.strokeStyle = "rgba(110,231,183,0.75)";
+      ctx.lineWidth = 2 * s;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0 + arm); ctx.lineTo(x0, y0); ctx.lineTo(x0 + arm, y0);
+      ctx.moveTo(x1 - arm, y0); ctx.lineTo(x1, y0); ctx.lineTo(x1, y0 + arm);
+      ctx.moveTo(x1, y1 - arm); ctx.lineTo(x1, y1); ctx.lineTo(x1 - arm, y1);
+      ctx.moveTo(x0 + arm, y1); ctx.lineTo(x0, y1); ctx.lineTo(x0, y1 - arm);
+      ctx.stroke();
+    }
+
+    /** Reads named blendshape scores into the meter rows. */
+    function meter(categories) {
+      const find = (name) => categories.find((c) => c.categoryName === name)?.score ?? 0;
+      const left = find("eyeBlinkLeft");
+      const right = find("eyeBlinkRight");
+      const smile = Math.max(find("mouthSmileLeft"), find("mouthSmileRight"), find("jawOpen") * 0.6);
+      const paint = (bar, label, value) => {
+        if (bar) bar.style.width = `${Math.min(100, value * 100)}%`;
+        if (label) label.textContent = `${Math.round(value * 100)}%`;
+      };
+      paint(readouts.blinkLBar, readouts.blinkL, left);
+      paint(readouts.blinkRBar, readouts.blinkR, right);
+      paint(readouts.smileBar, readouts.smile, smile);
+    }
+
+    function loop() {
+      if (stopped) return;
+      raf = requestAnimationFrame(loop);
+      if (!landmarker || video.readyState < 2 || !video.videoWidth) return;
+      if (video.currentTime === lastVideoTime) return;
+      lastVideoTime = video.currentTime;
+
+      sizeCanvas();
+      const started = performance.now();
+      lastStamp = Math.max(Math.floor(started), lastStamp + 1);
+      let result = null;
+      try {
+        result = landmarker.detectForVideo(video, lastStamp);
+      } catch {
+        return;
+      }
+      lastInferMs = lastInferMs ? lastInferMs * 0.8 + (performance.now() - started) * 0.2 : performance.now() - started;
+
+      draw(result);
+
+      const categories = result?.faceBlendshapes?.[0]?.categories;
+      if (categories) meter(categories);
+
+      if (readouts.fps) {
+        const now = performance.now();
+        const delta = now - (lastFpsStamp || now);
+        lastFpsStamp = now;
+        if (delta > 0) {
+          const instant = 1000 / delta;
+          fpsSmooth = fpsSmooth ? fpsSmooth * 0.85 + instant * 0.15 : instant;
+          readouts.fps.textContent = `${Math.round(Math.min(fpsSmooth, 99))} fps`;
+        }
+      }
+      if (readouts.ms) readouts.ms.textContent = `${Math.round(lastInferMs)} ms`;
+      if (readouts.points) readouts.points.textContent = result?.faceLandmarks?.length ? String(result.faceLandmarks[0].length) : "—";
+    }
+
+    async function loadEngine() {
+      let lastError = null;
+      for (const candidate of ENGINE_CANDIDATES) {
+        try {
+          const vision = await import(/* webpackIgnore: true */ candidate.module);
+          const fileset = await vision.FilesetResolver.forVisionTasks(candidate.wasm);
+          const options = {
+            baseOptions: { modelAssetPath: MODEL, delegate: "GPU" },
+            runningMode: "VIDEO",
+            numFaces: 1,
+            outputFaceBlendshapes: true,
+          };
+          try {
+            engineApi = vision.FaceLandmarker;
+            return await vision.FaceLandmarker.createFromOptions(fileset, options);
+          } catch {
+            // GPU delegate is unavailable on some drivers — retry on CPU
+            options.baseOptions.delegate = "CPU";
+            return await vision.FaceLandmarker.createFromOptions(fileset, options);
+          }
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError || new Error("Engine unavailable");
+    }
+
+    function release() {
+      stopped = true;
+      cancelAnimationFrame(raf);
+      raf = 0;
+      stream?.getTracks().forEach((track) => track.stop());
+      stream = null;
+      video.srcObject = null;
+      lab.classList.remove("is-live");
+      canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+      if (stopBtn) stopBtn.hidden = true;
+      if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.textContent = "Enable camera";
+      }
+      modeButtons.forEach((button) => { if (button) button.disabled = true; });
+      if (readouts.fps) readouts.fps.textContent = "— fps";
+      if (readouts.ms) readouts.ms.textContent = "— ms";
+      if (readouts.points) readouts.points.textContent = "—";
+    }
+
+    stopBtn?.addEventListener("click", () => {
+      release();
+      say("Camera released. <b>Nothing was uploaded and no frames were stored.</b>");
+      idle?.removeAttribute("aria-hidden");
+    });
+
+    studioBtn?.addEventListener("click", () => AUTH.open("register"));
+    modeButtons.forEach((button, index) => {
+      button?.addEventListener("click", () => setMode(["mesh", "contour", "points"][index]));
+    });
+
+    startBtn?.addEventListener("click", async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        say("This browser doesn't expose a camera. Try Chrome, Edge, Firefox or Safari on a device with a webcam.", "error");
+        return;
+      }
+      startBtn.disabled = true;
+      say("Requesting camera access…", "busy");
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      } catch (error) {
+        startBtn.disabled = false;
+        const denied = error?.name === "NotAllowedError" || error?.name === "SecurityError";
+        // A blocked prompt inside an embedded frame is almost always the parent's
+        // Permissions-Policy, not the visitor's browser setting — say so, and offer the
+        // one action that actually fixes it.
+        const framed = (() => { try { return window.self !== window.top; } catch { return true; } })();
+        const escape = ' <a href="' + location.href + '" target="_blank" rel="noopener">Open in a new tab ↗</a>';
+        if (denied && framed) {
+          say("Camera is blocked inside this embedded frame. Browsers only grant camera access to a top-level page — press enable again from a new tab." + escape, "error");
+        } else if (denied) {
+          say("Camera blocked. Allow camera access for this site in your browser's address bar, then press enable again.", "error");
+        } else if (!window.isSecureContext) {
+          say("Camera access needs a secure (https) connection. " + escape, "error");
+        } else {
+          say("No camera found. Connect a webcam or try this on a device with one.", "error");
+        }
+        return;
+      }
+
+      video.srcObject = stream;
+      try {
+        await video.play();
+      } catch {
+        /* autoplay of a user-gesture stream can still resolve slowly; the loop waits for data */
+      }
+
+      // Match the stage to the source so the overlay needs no crop compensation.
+      const applyRatio = () => {
+        if (video.videoWidth && video.videoHeight) {
+          lab.style.setProperty("--ar", `${video.videoWidth} / ${video.videoHeight}`);
+        }
+      };
+      applyRatio();
+      video.addEventListener("loadedmetadata", applyRatio, { once: true });
+
+      lab.classList.add("is-live");
+      if (stopBtn) stopBtn.hidden = false;
+      idle?.setAttribute("aria-hidden", "true");
+
+      if (landmarker) {
+        stopped = false;
+        lastVideoTime = -1;
+        modeButtons.forEach((button) => { if (button) button.disabled = false; });
+        say("<b>Tracking on your device.</b> Move your head, blink, smile — the mesh follows.");
+        raf = requestAnimationFrame(loop);
+        return;
+      }
+
+      say("Downloading the on-device model (~10 MB, cached after the first run)…", "busy");
+      try {
+        landmarker = await loadEngine();
+      } catch {
+        // release() directly rather than clicking stop: the stop handler writes its own
+        // copy, which would replace this error before the visitor could read it.
+        release();
+        say("Couldn't load the tracking engine. Check your connection and try again — nothing was sent anywhere.", "error");
+        return;
+      }
+
+      modeButtons.forEach((button) => { if (button) button.disabled = false; });
+      setMode(mode);
+      stopped = false;
+      lastVideoTime = -1;
+      say("<b>Tracking on your device.</b> Move your head, blink, smile — the mesh follows.");
+      raf = requestAnimationFrame(loop);
+    });
+
+    // Don't burn battery animating a tab nobody is looking at.
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      } else if (!stopped && landmarker) {
+        raf = requestAnimationFrame(loop);
+      }
+    });
+
+    addEventListener("pagehide", () => stream?.getTracks().forEach((track) => track.stop()));
+  }
+
+  /* ---------------------------------------------------------------------
      Use-case rail: arrows + drag
      --------------------------------------------------------------------- */
   const rail = $("#rail");

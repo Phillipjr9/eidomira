@@ -41,9 +41,9 @@
     </a>
     <nav class="nav__links" aria-label="Sections">
       <a href="#studio">Studio</a>
+      <a href="#try">Try it</a>
       <a href="#gallery">Faces</a>
       <a href="#how">How it works</a>
-      <a href="#trust">Trust</a>
       <a href="#pricing">Pricing</a>
       <a href="#faq">FAQ</a>
     </nav>
@@ -61,12 +61,13 @@
 
 <div class="drawer" id="drawer">
   <a href="#studio">Studio <span>01</span></a>
-  <a href="#gallery">Faces <span>02</span></a>
-  <a href="#how">How it works <span>03</span></a>
-  <a href="#modes">Tools <span>04</span></a>
-  <a href="#trust">Trust <span>05</span></a>
-  <a href="#pricing">Pricing <span>06</span></a>
-  <a href="#faq">FAQ <span>07</span></a>
+  <a href="#try">Try it live <span>02</span></a>
+  <a href="#gallery">Faces <span>03</span></a>
+  <a href="#how">How it works <span>04</span></a>
+  <a href="#modes">Tools <span>05</span></a>
+  <a href="#trust">Trust <span>06</span></a>
+  <a href="#pricing">Pricing <span>07</span></a>
+  <a href="#faq">FAQ <span>08</span></a>
   <button class="btn btn--primary btn--block" id="drawerCta" type="button">Start free — no card</button>
 </div>
 
@@ -106,8 +107,8 @@
         <button class="btn btn--primary btn--lg" id="heroStart" type="button" data-magnet>
           Start free — 7 days <span class="btn__arrow" aria-hidden="true">→</span>
         </button>
-        <a class="btn btn--ghost btn--lg" href="#gallery">
-          <span aria-hidden="true">◉</span> See how it looks
+        <a class="btn btn--ghost btn--lg" href="#try">
+          <span aria-hidden="true">◉</span> Try your camera — no signup
         </a>
       </div>
 
@@ -427,6 +428,83 @@
 </section>
 
 <hr class="rule">
+
+<section class="section section--tight" id="try">
+  <div class="shell">
+    <div class="section-head--split section-head" data-reveal>
+      <div>
+        <p class="kicker">No account, no upload</p>
+        <h2 class="h-lg">Your camera.<br><span class="serif">Your own device.</span></h2>
+      </div>
+      <p class="lede">
+        Press enable and the browser computes a 478-point face mesh locally — the same
+        detection stage the Studio runs before any transformation. Nothing is uploaded,
+        nothing is recorded, and you can stop it at any time.
+      </p>
+    </div>
+
+    <div class="lab" id="lab" data-reveal>
+      <div class="lab__stage">
+        <video class="lab__video" id="labVideo" playsinline muted autoplay aria-label="Your camera preview"></video>
+        <canvas class="lab__canvas" id="labCanvas" aria-hidden="true"></canvas>
+
+        <div class="lab__idle" id="labIdle">
+          <img src="/static/persona-02.jpg" alt="" width="96" height="96" loading="lazy">
+          <h3>Landmark tracking, running here</h3>
+          <p>Turn on your camera to see the mesh that drives every Eidomira session. It never leaves this tab.</p>
+          <button class="btn btn--primary" id="labStart" type="button" data-magnet>
+            Enable camera <span class="btn__arrow" aria-hidden="true">→</span>
+          </button>
+          <small>Engine downloads once · ~10 MB · then works offline</small>
+        </div>
+
+        <span class="lab__badge" id="labBadge"><i></i>On-device · live</span>
+
+        <div class="lab__hud">
+          <div><span>Landmarks</span><b id="labPoints">—</b></div>
+          <div><span>Frame rate</span><b id="labFps">— fps</b></div>
+          <div><span>Inference</span><b id="labMs">— ms</b></div>
+          <div><span>Uploaded</span><b style="color:var(--mint)">0 bytes</b></div>
+        </div>
+      </div>
+
+      <div class="lab__side">
+        <h3>Overlay</h3>
+        <p>Pick how you want the tracking drawn. All three come from the same live inference pass.</p>
+
+        <div class="seg" role="group" aria-label="Overlay style">
+          <button type="button" id="labModeMesh" aria-pressed="true" disabled>Mesh</button>
+          <button type="button" id="labModeContour" aria-pressed="false" disabled>Contour</button>
+          <button type="button" id="labModePoints" aria-pressed="false" disabled>Points</button>
+        </div>
+
+        <div class="meters">
+          <div class="meter">
+            <header><span>Blink · left</span><b id="labBlinkL">0%</b></header>
+            <div class="meter__track"><i class="meter__fill" id="labBlinkLBar"></i></div>
+          </div>
+          <div class="meter">
+            <header><span>Blink · right</span><b id="labBlinkR">0%</b></header>
+            <div class="meter__track"><i class="meter__fill" id="labBlinkRBar"></i></div>
+          </div>
+          <div class="meter">
+            <header><span>Smile</span><b id="labSmile">0%</b></header>
+            <div class="meter__track"><i class="meter__fill" id="labSmileBar"></i></div>
+          </div>
+        </div>
+
+        <div class="lab__actions">
+          <button class="btn btn--ghost" id="labStop" type="button" hidden>Stop &amp; release camera</button>
+          <button class="btn btn--ghost" id="labStudio" type="button">Open the Studio instead</button>
+        </div>
+
+        <p class="lab__status" id="labStatus" role="status" aria-live="polite">
+          Camera is off. Tracking stays on your device and the feed is discarded when you stop.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- ══ Use cases ═══════════════════════════════════════════════════════════ -->
 <section class="section section--tight">

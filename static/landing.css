@@ -20,8 +20,10 @@
 
   --paper: #f6f5f9;
   --paper-2: #bcbacb;
-  --paper-3: #83818f;
-  --paper-4: #5d5b6b;
+  /* Muted ramp is contrast-checked against the lightest panel (#131318):
+     paper 17.1:1, paper-2 9.7:1, paper-3 6.6:1, paper-4 4.9:1 — all WCAG AA for body text. */
+  --paper-3: #9a98a8;
+  --paper-4: #83818f;
 
   --violet: #8b6cff;
   --violet-soft: #b6a3ff;
@@ -1440,6 +1442,242 @@ body.drawer-open .drawer { transform: none; opacity: 1; pointer-events: auto; }
   gap: 8px;
 }
 .usecase:hover .usecase__tag { color: var(--cyan-soft); }
+
+/* --------------------------------------------------------------------------
+   12b. On-device lab (real camera + locally computed landmark mesh)
+   -------------------------------------------------------------------------- */
+.lab {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.65fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.lab__stage {
+  position: relative;
+  aspect-ratio: var(--ar, 16 / 9);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: #07070d;
+  box-shadow: var(--shadow-lift);
+}
+.lab__stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.04) 40%, var(--glow-violet));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* The camera stream and its overlay are mirrored identically, so normalised landmark
+   coordinates need no extra transform — only the stage's own aspect ratio must match
+   the source, which keeps `object-fit: cover` from cropping the frame. */
+.lab__video,
+.lab__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(-1);
+}
+.lab__video { object-fit: cover; opacity: 0; transition: opacity 0.8s var(--ease-soft); }
+.lab.is-live .lab__video { opacity: 1; }
+.lab__canvas { z-index: 2; }
+
+.lab__idle {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 16px;
+  padding: 26px;
+  text-align: center;
+  background:
+    radial-gradient(70% 70% at 50% 40%, rgba(139, 108, 255, 0.14), transparent 70%),
+    linear-gradient(170deg, #101018, #08080e);
+  transition: opacity 0.6s var(--ease-soft);
+}
+.lab.is-live .lab__idle { opacity: 0; pointer-events: none; }
+.lab__idle img {
+  width: 96px;
+  height: 96px;
+  border-radius: 26px;
+  object-fit: cover;
+  box-shadow: 0 20px 50px -20px var(--glow-violet);
+  animation: floaty 6s var(--ease-soft) infinite alternate;
+}
+@keyframes floaty {
+  from { transform: translateY(-4px); }
+  to { transform: translateY(6px); }
+}
+.lab__idle h3 { margin: 0; font-size: clamp(1.1rem, 1.8vw, 1.5rem); font-weight: 500; letter-spacing: -0.03em; }
+.lab__idle p { margin: 0; max-width: 42ch; font-size: 14px; color: var(--paper-3); }
+.lab__idle .btn { margin-top: 4px; }
+.lab__idle small {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper-4);
+}
+
+.lab__badge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--r-full);
+  background: rgba(0, 0, 0, 0.66);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 0 1px var(--line) inset;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper-2);
+  opacity: 0;
+  transition: opacity 0.5s var(--ease-soft);
+}
+.lab.is-live .lab__badge { opacity: 1; }
+.lab__badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mint);
+  box-shadow: 0 0 10px var(--mint);
+  animation: pulse 1.5s var(--ease-soft) infinite;
+}
+
+.lab__hud {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: rgba(8, 8, 13, 0.7);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--line-soft);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.6s var(--ease-soft) 0.2s, transform 0.6s var(--ease) 0.2s;
+}
+.lab.is-live .lab__hud { opacity: 1; transform: none; }
+.lab__hud div { padding: 11px 14px; }
+.lab__hud > div + div { border-left: 1px solid var(--line-soft); }
+.lab__hud span {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper-4);
+}
+.lab__hud b {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.lab__side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px;
+  border-radius: var(--r-lg);
+  background: linear-gradient(170deg, #ffffff07, #ffffff02);
+  box-shadow: 0 0 0 1px var(--line-soft) inset;
+}
+.lab__side h3 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -0.025em; }
+.lab__side > p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--paper-3); }
+
+.seg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-full);
+  background: #00000059;
+  box-shadow: 0 0 0 1px var(--line-soft) inset;
+}
+.seg button {
+  padding: 9px 8px;
+  border-radius: var(--r-full);
+  font-size: 12.5px;
+  color: var(--paper-3);
+  transition: color 0.35s, background 0.35s;
+}
+.seg button[aria-pressed="true"] {
+  color: #0a0a12;
+  background: linear-gradient(103deg, var(--violet-soft), var(--cyan-soft));
+  font-weight: 550;
+}
+.seg button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.meters { display: grid; gap: 10px; }
+.meter { display: grid; gap: 6px; }
+.meter header {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper-4);
+}
+.meter header b { color: var(--paper-2); font-weight: 500; font-variant-numeric: tabular-nums; }
+.meter__track {
+  height: 3px;
+  border-radius: 99px;
+  background: #ffffff0f;
+  overflow: hidden;
+}
+.meter__fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--violet), var(--cyan));
+  transition: width 0.12s linear;
+}
+
+.lab__status {
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--paper-3);
+}
+.lab__status.is-error { color: var(--rose); }
+.lab__status.is-busy { color: var(--cyan-soft); }
+.lab__status b { color: var(--paper-2); font-weight: 500; }
+
+.lab__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.lab__actions .btn { padding: 12px 18px; font-size: 13px; }
+
+@media (max-width: 1080px) {
+  .lab { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .lab__hud { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lab__hud > div:nth-child(2n + 1) { border-left: 0; }
+  .lab__hud > div:nth-child(-n + 2) { border-bottom: 1px solid var(--line-soft); }
+}
 
 /* --------------------------------------------------------------------------
    13. Stats

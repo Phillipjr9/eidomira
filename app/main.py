@@ -3,7 +3,7 @@ import asyncio, time
 from pathlib import Path
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect, Depends, BackgroundTasks, Request, Header
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Depends, BackgroundTasks, Request, Header
 from fastapi.responses import FileResponse, JSONResponse, Response, RedirectResponse
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from fastapi.staticfiles import StaticFiles
@@ -108,6 +108,24 @@ def encode(rgb):
 
 @app.get("/")
 def index(): return FileResponse(ROOT / "static" / "index.html")
+
+
+@app.get("/models/face_landmarker.task", include_in_schema=False)
+def landmark_model():
+    """Public MediaPipe landmark bundle for the on-device landing demo.
+
+    Deliberately an explicit single-file route rather than a StaticFiles mount over
+    `models/`: that directory also holds licensed face-swap weights (`inswapper_128.onnx`)
+    which must never be reachable over HTTP.
+    """
+    path = ROOT / "models" / "face_landmarker.task"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Landmark model not installed")
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
 
 
 @app.get("/app")

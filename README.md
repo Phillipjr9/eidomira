@@ -79,6 +79,26 @@ Design notes:
 page can be hosted in previews, docs and product embeds. `/app` and `/api/*` keep
 `X-Frame-Options: SAMEORIGIN` and `frame-ancestors 'self'`.
 
+## On-device demo (`/#try`)
+
+The "Your camera. Your own device." section runs a real MediaPipe FaceLandmarker in the
+visitor's browser against their own webcam and draws the 478-point mesh, contours, iris
+points and a tracking reticle, plus live blink/smile meters from the blendshape output.
+
+- Detection happens entirely client-side; no frame, embedding or landmark leaves the tab.
+  Nothing is fetched until the visitor clicks enable, and the camera track is released on
+  stop, on engine failure, and on page hide.
+- The engine is a pinned CDN build (`@mediapipe/tasks-vision`, see `ENGINE_CANDIDATES` in
+  `landing.js`) with a second version as fallback. The model is served from this repo by
+  `GET /models/face_landmarker.task`.
+- `GET /models/face_landmarker.task` is an explicit single-file route on purpose: a
+  `StaticFiles` mount over `models/` would also expose licensed weights such as
+  `inswapper_128.onnx`.
+- CSP carries `'wasm-unsafe-eval'` (WebAssembly compilation only, not JS `eval`) and the
+  CDN in `connect-src`/`worker-src`, because the wasm runtime is fetched at run time.
+- Camera permission is a top-level-only capability, so inside an embedded frame the demo
+  detects the framing and offers an "open in a new tab" link instead of failing silently.
+
 ## Local UI/transport test
 
 ```bash
