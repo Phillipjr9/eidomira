@@ -3,6 +3,7 @@ import time
 import cv2
 import numpy as np
 from .base import Enrollment, FaceSwapEngine, FrameResult
+from .providers import describe_providers, execution_providers
 from app.config import settings
 from app.compositor import SemanticCompositor
 
@@ -18,9 +19,16 @@ class InSwapperEngine(FaceSwapEngine):
         except ImportError as exc:
             raise RuntimeError("Install requirements-gpu.txt on the GPU worker") from exc
         self.threshold = threshold
-        self.analyzer = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
-        self.analyzer.prepare(ctx_id=0, det_size=(640, 640))
-        self.swapper = insightface.model_zoo.get_model(model_path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+        # Use whatever accelerator this host really exposes instead of assuming CUDA.
+        self.providers = list(execution_providers())
+        self.provider = describe_providers(self.providers)
+        self.accelerated = self.provider != "cpu"
+        self.analyzer = FaceAnalysis(name="buffalo_l", providers=self.providers)
+        # ctx_id selects the CUDA device; it must be < 0 when CUDA is not in play,
+        # otherwise InsightFace tries to bind a GPU context that does not exist.
+        self.analyzer.prepare(ctx_id=0 if "CUDAExecutionProvider" in self.providers else -1,
+                              det_size=(640, 640))
+        self.swapper = insightface.model_zoo.get_model(model_path, providers=self.providers)
         self.compositor = None
         if settings.parser_model_path.exists():
             self.compositor = SemanticCompositor(

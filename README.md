@@ -148,6 +148,23 @@ docker compose up --build
 
 InsightFace code and pretrained weights have different licenses. Pretrained InSwapper weights are non-commercial unless separately licensed by their owner. Confirm licensing before deployment.
 
+### Execution providers
+
+The adapter does not assume CUDA. At startup `app/engines/providers.py` asks ONNX Runtime
+which providers the host exposes, then orders them by expected throughput — TensorRT,
+CUDA, ROCm, MIGraphX, DirectML, CoreML, OpenVINO — and keeps CPU last as the fallback.
+The resolved list is reported by `GET /api/health` as `provider`, `providers` and
+`accelerated`, and shown in the studio status line, so a host that quietly fell back to
+CPU is visible rather than merely slow.
+
+| Variable | Meaning |
+| --- | --- |
+| `EIDOMIRA_PROVIDERS` | Comma-separated override, e.g. `cuda,cpu` or `directml`. Unknown or unavailable names fall back to automatic ordering. |
+| `EIDOMIRA_TENSORRT` | Set to `1` to allow TensorRT. Off by default: it builds an engine on first use, which can take minutes and is the wrong default for a request path. |
+
+When CUDA is absent the InsightFace detector is prepared with `ctx_id=-1`, because a
+non-negative id asks for a GPU context the host does not have.
+
 ## Important MVP limitation
 
 Direct peer-to-worker WebRTC is implemented for the MVP. Before a high-concurrency launch, add a production TURN service and regional SFU/gateway rather than terminating every public peer directly on GPU workers. The current scheduler deliberately drops stale frames instead of accumulating latency, but GPU admission control is still required for multiple simultaneous neural sessions.

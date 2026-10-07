@@ -110,3 +110,77 @@ spoofing. There was never anything here to adopt.
    a signal, not a small project.
 7. **Weigh the feature against our own policy.** A capability that defeats identity
    verification or consent is out of scope for Eidomira regardless of its licence.
+
+---
+
+## `facefusion/facefusion` — **legitimate, but licence-blocked for code reuse**
+
+**Reviewed:** 2026-10-07 · **Verdict:** real, well-built project. We may learn from its
+architecture; we may not copy its code or ship its model weights.
+**Action:** no code taken. One idea adopted, reimplemented independently (see below).
+
+### Safety check (the checklist, applied)
+
+Clean. All Python, no binaries, no build hooks in the CI workflow, no `eval`/`exec`,
+no base64 blobs, no obfuscation. `subprocess` is used only for FFmpeg and conda.
+Model downloads are integrity-checked against hash files — note the check is CRC32,
+which detects corruption but is **not** tamper-proof, so it is not a supply-chain control.
+
+### Licence — the blocker
+
+| Period | Licence |
+| --- | --- |
+| ≤ 2024-05-19 | MIT |
+| ≥ 2025-02-15 | **OpenRAIL-AS** |
+
+`LICENSE.md` is 51 bytes and states only "OpenRAIL-AS license" — the terms themselves are
+not in the repository. OpenRAIL is **not** an OSI-approved open-source licence: it is a
+Responsible AI Licence carrying use-based restrictions that must be passed downstream.
+
+Consequences for Eidomira:
+
+- We cannot copy source from the current tree into a commercial product.
+- Adopting code from the pre-2025 MIT snapshot is legally murky (the author re-licensed
+  deliberately) and reputationally worse. Do not do it.
+- **The model weights are licensed separately and are the sharper problem:**
+  INSwapper, ArcFace and AlphaFace are listed as **non-commercial**, HyperSwap uses
+  ResearchRAIL. Other weights are MIT/Apache/GPL/unknown. This is the same wall our own
+  README already documents for `inswapper_128.onnx`.
+
+### What is worth taking — ideas, reimplemented independently
+
+Copyright covers the expression, not the engineering idea. These are standard patterns,
+implemented in `app/engines/providers.py` and elsewhere on our own terms:
+
+1. **Auto-detect execution providers instead of hardcoding CUDA→CPU.** *Adopted.* Our
+   adapter hardcoded `["CUDAExecutionProvider", "CPUExecutionProvider"]`, so a host with
+   ROCm, DirectML, CoreML, OpenVINO or TensorRT silently ran on the CPU and simply looked
+   slow, with nothing anywhere saying so. `app/engines/providers.py` now asks ONNX Runtime
+   what the host exposes, orders it by expected throughput, reports the result through
+   `/api/health` and the studio status line, and keeps TensorRT opt-in because it builds
+   an engine on first use.
+
+2. **Track a face across frames by bounding-box overlap and refill gaps.** *Not adopted.*
+   Frame-to-frame association means one dropped detection does not flicker or swap
+   identity. Our `app/temporal.py` works at the pixel level (motion-aware blending) and
+   does no cross-frame identity association. Worth doing; a real change, tracked below.
+
+3. **Pool inference sessions and never construct them per frame.** We already build one
+   engine per process, so this is a design we happen to satisfy rather than a gap.
+
+4. **Report the ONNX Runtime version range with known problems.** Their code encodes a
+   memory-arena issue specific to CUDA plus ORT versions `> 1.25.1` and `< 1.29.0`. Our
+   `onnxruntime-gpu>=1.20,<2` range spans it. It may not affect us — their workaround
+   exists because they share sessions between contexts, which we do not — but it is worth
+   confirming before a GPU launch rather than discovering under load.
+
+### Deliberate non-goals
+
+FaceFusion ships a content filter to detect and block NSFW material. That belongs to its
+model set, not to us, and none of its weights or filtering are in scope here.
+
+### Follow-ups
+
+- [ ] Verify the ORT 1.25.1–1.29.0 arena behaviour against our single-session design.
+- [ ] Consider bounding-box face tracking in `app/temporal.py` to survive dropped detections.
+- [ ] Keep `EIDOMIRA_PROVIDERS` in the deployment docs so operators can pin a provider.

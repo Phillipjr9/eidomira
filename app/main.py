@@ -254,6 +254,11 @@ def revoke_consent(consent_id:str,user=Depends(optional_user)):
 @app.get("/api/health")
 def health():
     return {"ok": True, "backend": engine.name, "gpu": engine.name != "diagnostic",
+            # Which ONNX Runtime provider inference will really use, so a host that
+            # silently fell back to CPU is visible instead of just looking slow.
+            "provider": getattr(engine, "provider", None),
+            "providers": list(getattr(engine, "providers", ())),
+            "accelerated": bool(getattr(engine, "accelerated", False)),
             "self_verification": settings.require_self_verification,
             "active_peers": len(peers), "peer_capacity": settings.max_active_peers,
             "turn_configured": bool(settings.turn_url_list and settings.turn_secret),

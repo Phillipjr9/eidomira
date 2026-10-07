@@ -22,8 +22,8 @@ let callRoomInstance=null,callVideoTrack=null,callAudioTrack=null;
 async function health(){
   try{const j=await apiFetch('/api/health').then(r=>r.json());
     $('engineName').textContent=j.backend.toUpperCase();
-    $('healthText').textContent=j.gpu?'GPU neural engine ready':'Diagnostic transport mode';
-    $('healthDot').style.background=j.gpu?'#6ee7a5':'#f59e0b';
+    $('healthText').textContent=j.gpu?((j.provider?j.provider.toUpperCase():'GPU')+((j.accelerated===false)?' · CPU':' neural engine ready')):'Diagnostic transport mode';
+    $('healthDot').style.background=(j.gpu&&j.accelerated!==false)?'#6ee7a5':(j.gpu?'#52d3ff':'#f59e0b');
   }catch{$('healthText').textContent='Engine unavailable'}
 }
 health();

@@ -8,6 +8,9 @@ from .base import Enrollment, FaceSwapEngine, FrameResult
 class DiagnosticEngine(FaceSwapEngine):
     """Honest transport/UI test backend. It never pretends to be neural inference."""
     name = "diagnostic"
+    providers = ()
+    provider = None
+    accelerated = False
 
     def enroll(self, rgb: np.ndarray) -> Enrollment:
         if rgb is None or min(rgb.shape[:2]) < 64:
