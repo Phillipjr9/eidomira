@@ -4,15 +4,80 @@ if(!accessToken)location.replace('/?signin=1');
 function apiFetch(url,options={}){const headers=new Headers(options.headers||{});if(accessToken)headers.set('Authorization','Bearer '+accessToken);return fetch(url,{...options,headers})}
 function setToken(token){accessToken=token||'';if(token)localStorage.setItem('eidomira_access_token',token);else localStorage.removeItem('eidomira_access_token')}
 let authMode='register';
-async function loadAccount(){if(!accessToken){location.replace('/?signin=1');return}try{const me=await apiFetch('/api/auth/me').then(r=>{if(!r.ok)throw Error();return r.json()});$('accountBtn').textContent='Account';$('accountBar').hidden=false;$('accountEmail').textContent=me.email;$('adminLink').hidden=me.role!=='admin';const billing=await apiFetch('/api/billing/account').then(r=>r.json());$('accountPlan').textContent=(billing.subscription?.plan||'NO PLAN').toUpperCase();$('creditBalance').textContent=billing.wallet?.total||0}catch{setToken('');location.replace('/?signin=1')}}
+async function loadAccount(){if(!accessToken){location.replace('/?signin=1');return}try{const me=await apiFetch('/api/auth/me').then(r=>{if(!r.ok)throw Error();return r.json()});$('accountBtn').textContent='Account';$('accountBar').hidden=false;$('accountEmail').textContent=me.email;$('adminLink').hidden=me.role!=='admin';const billing=await apiFetch('/api/billing/account').then(r=>r.json());$('accountPlan').textContent=(billing.subscription?.plan||'NO PLAN').toUpperCase();renderWallet(billing,me)}catch{setToken('');location.replace('/?signin=1')}}
 function openAuth(){authMode='register';renderAuth();$('authModal').hidden=false}
 function renderAuth(){$('authTitle').textContent=authMode==='register'?'Start your free trial':'Welcome back';$('authCopy').textContent=authMode==='register'?'Verify your email to receive 100 credits for 7 days. No card required.':'Sign in to your Eidomira account.';$('authSubmit').textContent=authMode==='register'?'Create account':'Sign in';$('authSwitch').textContent=authMode==='register'?'Already registered? Sign in':'New to Eidomira? Start free trial';$('authPassword').autocomplete=authMode==='register'?'new-password':'current-password';$('authMessage').textContent=''}
 $('accountBtn').onclick=()=>accessToken?$('accountBar').toggleAttribute('hidden'):openAuth();$('authClose').onclick=()=>$('authModal').hidden=true;$('authSwitch').onclick=()=>{authMode=authMode==='register'?'login':'register';renderAuth()};$('logoutBtn').onclick=async()=>{try{await fetch('/api/auth/logout',{method:'POST'})}catch{}setToken('');location.href='/'};
 async function startCheckout(product){if(!accessToken)return openAuth();try{const r=await apiFetch('/api/payments/paystack/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product})}),j=await r.json();if(!r.ok)throw Error(j.error||'Checkout unavailable');location.href=j.authorization_url}catch(e){status(e.message,true)}}
-$('upgradeBtn').onclick=()=>startCheckout('live-pro-monthly');$('annualBtn').onclick=()=>startCheckout('live-pro-annual');$('paygBtn').onclick=()=>startCheckout($('paygPack').value);document.querySelectorAll('.priceSignup').forEach(b=>b.onclick=openAuth);document.querySelectorAll('.benefitTabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.benefitTabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active')});
+$('upgradeBtn').onclick=()=>startCheckout('live-pro-monthly');$('annualBtn').onclick=()=>startCheckout('live-pro-annual');$('buyCreditsBtn').onclick=()=>{$('walletPanel').scrollIntoView({behavior:'smooth',block:'center'})};document.querySelectorAll('.priceSignup').forEach(b=>b.onclick=openAuth);document.querySelectorAll('.benefitTabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.benefitTabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active')});
 $('authForm').onsubmit=async e=>{e.preventDefault();$('authSubmit').disabled=true;try{const r=await fetch('/api/auth/'+authMode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('authEmail').value,password:$('authPassword').value})}),j=await r.json();if(!r.ok)throw Error(j.error||'Authentication failed');if(j.access_token){setToken(j.access_token);$('authModal').hidden=true;await loadAccount()}else $('authMessage').textContent=j.message}catch(err){$('authMessage').textContent=err.message;$('authMessage').style.color='#fda4af'}finally{$('authSubmit').disabled=false}};
+function creditCount(n){return (n||0).toLocaleString('en-NG')}
+function walletDate(seconds){return new Date(seconds*1000).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})}
+
+/* The credits panel.
+ *
+ * Everything it shows comes from /api/billing/account: the balance and its parts, the
+ * packs with the prices the server will actually charge, and this account's own ledger.
+ * The panel used to be a <select> in the account bar with the prices typed into the
+ * markup, which meant the number beside a pack and the number sent to Paystack were two
+ * separate facts that merely agreed at the time.
+ */
+function renderWallet(billing,user){
+  const wallet=billing.wallet||{}, total=wallet.total||0;
+  $('creditBalance').textContent=creditCount(total);
+  $('walletTotal').textContent=creditCount(total);
+  $('walletPlanCredits').textContent=creditCount(wallet.subscription_credits);
+  $('walletTopupCredits').textContent=creditCount(wallet.topup_credits);
+  $('walletUsedCredits').textContent=creditCount(billing.credits_used);
+
+  const expiry=$('walletExpiry');
+  if(wallet.topup_credits>0&&wallet.topup_expires_at){
+    expiry.hidden=false;
+    expiry.textContent='Top-up credits are usable until '+walletDate(wallet.topup_expires_at)+'.';
+  }else expiry.hidden=true;
+
+  const packs=$('walletPacks');packs.replaceChildren();
+  (billing.topups||[]).forEach(pack=>{
+    const button=document.createElement('button');
+    button.type='button';button.className='walletPack';button.dataset.product=pack.product;
+    const credits=document.createElement('b');credits.textContent='+'+creditCount(pack.credits);
+    const price=document.createElement('span');price.textContent=pack.price;
+    button.append(credits,price);
+    button.onclick=()=>startCheckout(pack.product);
+    packs.append(button);
+  });
+
+  const state=$('walletState'),message=$('walletMessage');
+  if(!billing.paystack_configured){
+    state.textContent='Payments off';state.className='off';packs.hidden=true;
+    message.textContent='Card payments are not switched on for this installation yet, so packs cannot be bought here. Plan credits still apply.';
+  }else if(user&&!user.email_verified){
+    state.textContent='Verify email';state.className='off';packs.hidden=false;
+    message.textContent='Verify your email address to buy credits: Paystack is given a confirmed address.';
+  }else if(total<=0){
+    state.textContent='Empty';state.className='off';packs.hidden=false;
+    message.textContent='No credits left. Buy a pack below, or upgrade to Live Pro for 1,500 a month.';
+  }else{
+    state.textContent='Ready';state.className='watching';packs.hidden=false;message.textContent='';
+  }
+
+  const list=$('walletLedger');list.replaceChildren();
+  const entries=billing.ledger||[];
+  if(!entries.length){const li=document.createElement('li');li.className='note';li.textContent='Nothing yet.';list.append(li);return}
+  entries.forEach(entry=>{
+    const li=document.createElement('li');
+    const delta=document.createElement('b');
+    delta.className=entry.delta>0?'good':'spent';
+    delta.textContent=(entry.delta>0?'+':'')+creditCount(entry.delta);
+    const what=document.createElement('span');
+    what.textContent=entry.description+' · '+walletDate(entry.created_at);
+    li.append(delta,what);
+    list.append(li);
+  });
+}
+
 async function verifyFromLink(){const token=new URLSearchParams(location.search).get('verify');if(!token)return;history.replaceState({},'',location.pathname);const r=await fetch('/api/auth/verify-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}),j=await r.json();if(r.ok){setToken(j.access_token);status('Email verified. Your 7-day trial is active.');loadAccount()}else{openAuth();$('authMessage').textContent=j.error}}
-async function verifyPaymentReturn(){const p=new URLSearchParams(location.search),reference=p.get('reference');if(p.get('payment')!=='return'||!reference)return;history.replaceState({},'',location.pathname);if(!accessToken)return openAuth();status('Confirming Paystack payment…');try{const r=await apiFetch('/api/payments/paystack/verify/'+encodeURIComponent(reference)),j=await r.json();if(!r.ok)throw Error(j.error||'Payment verification failed');if(j.status==='success'){status('Payment confirmed. Live Pro is active.');await loadAccount()}else status('Payment is '+j.status+'. Your plan has not been changed.',true)}catch(e){status(e.message,true)}}
+async function verifyPaymentReturn(){const p=new URLSearchParams(location.search),reference=p.get('reference');if(p.get('payment')!=='return'||!reference)return;history.replaceState({},'',location.pathname);if(!accessToken)return openAuth();status('Confirming Paystack payment…');try{const r=await apiFetch('/api/payments/paystack/verify/'+encodeURIComponent(reference)),j=await r.json();if(!r.ok)throw Error(j.error||'Payment verification failed');if(j.status==='success'){status('Payment confirmed. '+((j.kind==='topup')?'Credits added to your balance.':'Live Pro is active.'));await loadAccount()}else status('Payment is '+j.status+'. Your plan has not been changed.',true)}catch(e){status(e.message,true)}}
 loadAccount();verifyFromLink();verifyPaymentReturn();
 let media=null,pc=null,session=null,running=false,statsTimer=null,reconnects=0;
 let recorder=null,recordedChunks=[],recordUrl=null,recordedBlob=null,recordStarted=0,recordTimer=null;

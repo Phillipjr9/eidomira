@@ -47,13 +47,7 @@
       <span class="pill" id="accountPlan">NO PLAN</span>
       <button class="btn btn--primary" id="upgradeBtn" type="button">Upgrade to Live Pro</button>
       <button class="btn btn--ghost" id="annualBtn" type="button">Or annual · save 17%</button>
-      <select id="paygPack" aria-label="Credit pack">
-        <option value="credits-200">200 credits · ₦12,000</option>
-        <option value="credits-500">500 credits · ₦27,500</option>
-        <option value="credits-1500">1,500 credits · ₦75,000</option>
-        <option value="credits-5000">5,000 credits · ₦225,000</option>
-      </select>
-      <button class="btn btn--ghost" id="paygBtn" type="button">Buy credits</button>
+      <button class="btn btn--ghost" id="buyCreditsBtn" type="button">Buy credits</button>
       <a class="textButton" id="adminLink" href="/admin" hidden>Owner console</a>
       <button class="textButton" id="logoutBtn" type="button">Sign out</button>
     </span>
@@ -191,6 +185,30 @@
         <button id="shareBtn" type="button" hidden>Share clip</button>
         <button id="installBtn" type="button" hidden>Install app</button>
       </div>
+
+      <section class="wallet" id="walletPanel" aria-label="Credits">
+        <div class="walletHead">
+          <span class="microLabel">Credits</span>
+          <b id="walletState">Loading</b>
+        </div>
+
+        <div class="walletTotal"><b id="walletTotal">—</b><span>remaining</span></div>
+
+        <div class="walletSplit">
+          <span>Plan <b id="walletPlanCredits">0</b></span>
+          <span>Top-up <b id="walletTopupCredits">0</b></span>
+          <span>Used <b id="walletUsedCredits">0</b></span>
+        </div>
+
+        <p class="walletNote" id="walletExpiry" hidden></p>
+        <div class="walletPacks" id="walletPacks"></div>
+        <p class="walletNote" id="walletMessage" role="status" aria-live="polite"></p>
+
+        <details class="walletHistory">
+          <summary>Recent activity</summary>
+          <ul id="walletLedger"></ul>
+        </details>
+      </section>
 
       <section class="telemetry" aria-label="Session telemetry">
         <div><span>Engine</span><b id="engineName">—</b></div>

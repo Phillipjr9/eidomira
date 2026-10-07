@@ -127,6 +127,40 @@ points and a tracking reticle, plus live blink/smile meters from the blendshape 
 - Camera permission is a top-level-only capability, so inside an embedded frame the demo
   detects the framing and offers an "open in a new tab" link instead of failing silently.
 
+## The on-device runtime lab (`/lab`)
+
+One question: **can the swap run in the visitor's browser instead of on this server?** The
+page is public, unauthenticated and linked from nowhere — open it by URL, on the phone you
+actually carry.
+
+It measures, on the device in front of it: which ONNX execution providers the browser
+really offers (WebGPU with a WASM fallback) and the adapter the browser reports;
+`navigator.deviceMemory`, `hardwareConcurrency` and the JS heap; the cost of one boost
+frame split into crop sampling, tensor packing, inference, unpacking and the interleave,
+averaged over 30 frames at 1×, 2× and 3×; and two costs that are easy not to notice — the
+`getImageData` readback per pass, and the fact that multi-threaded ONNX Runtime needs
+cross-origin isolation this application does not send, so the runtime is held to one thread
+and the page says so.
+
+**The model it runs is not a face swapper.** `models/` has never held swap weights and the
+real one is 554 MB, so the lab runs a 277-byte stand-in: one depthwise 3×3 convolution,
+close enough to the identity that the only resolution loss left in the picture is the
+128-pixel crop grid the boost exists to undo. Switch 1×/2×/3× and the detail comes back.
+The arithmetic is genuinely ONNX Runtime's; the model is not. Every number it prints is a
+floor, and the page says that too. Delete the page and the repository loses nothing but the
+demonstration.
+
+Two implementations of one algorithm drift, and a browser page cannot be run by this test
+suite. So `tests/test_boost_parity.py` generates fixtures from the Python implementation and
+`tests/boost_parity.mjs` asserts the JavaScript reproduces the sampled rectangles exactly and
+the final canvas byte for byte — followed by a sabotage case that corrupts one pass buffer
+and requires the checker to reject it, because a parity test that cannot fail proves
+nothing.
+
+`onnxruntime-web` is loaded from jsdelivr, pinned by version and covered by the CSP.
+Vendoring it was considered and not done: the bundle is 116 KB, but the wasm binary beside
+it is 26 MB, which is a larger commit than this repository.
+
 ## Local UI/transport test
 
 ```bash
@@ -484,6 +518,52 @@ Eidomira includes verified-email registration, Argon2id passwords, signed access
 Set `STUDIO_PUBLIC_URL` and SMTP values from `.env.example`. Without SMTP, development verification URLs print to server logs; this must not be used in production.
 
 Endpoints: `POST /api/auth/register`, `/api/auth/login`, `/api/auth/verify-email`, `/api/auth/resend-verification`; `GET /api/plans`, `/api/billing/account`; `POST /api/billing/quote`.
+
+### Seeing and buying credits
+
+The studio's side column carries a **Credits** panel: the remaining balance, split into
+plan credits and top-up credits, what has been used, when the top-up expires, the packs
+with their prices, and the account's own ledger of movements. The header chip shows the
+same total, and **Buy credits** in the account bar jumps to the panel.
+
+Every price in that panel comes from the server. The packs used to be four `<option>` lines
+typed into the markup with the naira prices in them, next to a kobo amount in settings that
+decided the actual charge — two facts that agreed by luck. They now come from one
+definition (`TOPUPS` in `app/billing.py`, which `app/paystack.py` imports) and
+`tests/test_credits.py` asserts that the price on the button and the amount Paystack is
+asked for are the same number.
+
+A purchase runs the length of the flow:
+
+1. `POST /api/payments/paystack/checkout` records a `payment_intents` row and returns
+   Paystack's authorization URL. It requires a signed-in account with a **verified**
+   address, because Paystack is handed that address.
+2. Paystack takes the payment and returns the customer to
+   `<public_url>/app?payment=return&reference=…`.
+3. The studio verifies the reference, the credits land in the ledger, and the panel
+   refreshes. Paystack's `charge.success` webhook is the second path to the same place.
+
+The credits are granted **once**, however many times Paystack repeats itself: the ledger
+row is keyed on `paystack:<reference>`, so the return trip and the webhook cannot both pay.
+An amount that does not match the intent, a charge that did not succeed, and a currency
+that is not NGN are all refused rather than credited.
+
+Two things were wrong before this and are worth naming, because both cost money:
+
+- **Checkout sent the payer to the landing page.** The callback was `/?payment=return`,
+  and only `/app` knew how to verify a reference — so on an installation without a
+  configured webhook, which is every installation until somebody configures one, the money
+  arrived and the balance never moved. The callback now returns to `/app`, and a test pins
+  it;
+- **Nothing showed the customer their balance.** There was a number in the header and a
+  `<select>` of packs; no breakdown, no expiry, no history.
+
+Switching it on needs `STUDIO_PAYSTACK_SECRET_KEY` and the webhook URL
+(`<public_url>/api/payments/paystack/webhook`) registered in the Paystack dashboard. Until
+then the panel says card payments are not switched on rather than offering four buttons
+that fail, and checkout answers `503 Paystack is not configured`. **No live Paystack call
+has been made from this repository** — the provider is faked in the tests and the amount it
+receives is asserted, so a pricing change that never reached checkout still fails there.
 
 ### The owner console (`/admin`)
 

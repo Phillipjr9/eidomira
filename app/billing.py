@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 from dataclasses import dataclass
+from app.config import settings
 from app.database import database
 
 TRIAL_DAYS = 7
@@ -27,6 +28,17 @@ PLAN = {
     ],
 }
 
+#: Credit top-ups: product id -> (credits, how to read the price from settings).
+#: Defined here rather than beside the payment provider because the credits are the
+#: product and Paystack is only how it is paid for; `app/paystack.py` imports this so the
+#: amount it asks Paystack for and the amount the button offers are the same number.
+TOPUPS = {
+    "credits-200": (200, lambda: settings.paystack_topup_200_kobo),
+    "credits-500": (500, lambda: settings.paystack_topup_500_kobo),
+    "credits-1500": (1500, lambda: settings.paystack_topup_1500_kobo),
+    "credits-5000": (5000, lambda: settings.paystack_topup_5000_kobo),
+}
+
 TOOLS = {
     "live_swap": {"name":"Full Live Swap", "unit":"minute", "credits":100, "max":10, "trial":False},
     "voice_changer": {"name":"Voice Changer", "unit":"minute", "credits":5, "daily_free":60, "trial":True},
@@ -40,6 +52,36 @@ TOOLS = {
 
 
 def now() -> int: return int(time.time())
+
+
+def topup_catalogue() -> list[dict]:
+    """The packs as a customer sees them, priced from the settings the charge uses.
+
+    The option labels used to be typed into the page by hand and the amounts live in
+    settings, so the two only agreed by luck. Anything that displays a price reads it
+    here.
+    """
+    packs = []
+    for product, (credits, amount_of) in TOPUPS.items():
+        kobo = amount_of()
+        packs.append({"product": product, "credits": credits, "amount_kobo": kobo,
+                      "price": "\u20a6" + f"{kobo // 100:,}"})
+    return packs
+
+
+def ledger(user_id: str, limit: int = 20) -> list[dict]:
+    """This account's own credit movements, newest first.
+
+    Scoped by user id in the WHERE clause rather than filtered afterwards: a ledger that
+    is read and then filtered is one forgotten condition away from showing somebody else's
+    purchases.
+    """
+    with database.lock, database.connect() as db:
+        rows = db.execute(
+            "SELECT delta,balance_after,kind,description,reference,created_at FROM credit_ledger "
+            "WHERE user_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?", (user_id, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def create_trial(user_id: str):
@@ -62,7 +104,13 @@ def account(user_id: str):
     subscription_available=wallet["subscription_credits"] if subscription_active else 0
     topup_available=wallet["topup_credits"] if wallet["topup_expires_at"] and wallet["topup_expires_at"]>current else 0
     usage = database.one("SELECT COALESCE(SUM(-delta),0) AS used FROM credit_ledger WHERE user_id=? AND delta<0", (user_id,))
-    return {"subscription":sub,"wallet":{**wallet,"subscription_credits":subscription_available,"topup_credits":topup_available,"total":subscription_available+topup_available},"credits_used":usage["used"],"plan":PLAN,"tools":TOOLS,"payg":True}
+    return {"subscription":sub,"wallet":{**wallet,"subscription_credits":subscription_available,"topup_credits":topup_available,"total":subscription_available+topup_available},"credits_used":usage["used"],"plan":PLAN,"tools":TOOLS,"payg":True,
+            # Everything the credits panel needs, in the payload it already fetches:
+            # the packs with their real prices, this account's own history, and whether
+            # card payments are switched on at all, so the page can say so instead of
+            # offering four buttons that fail.
+            "topups":topup_catalogue(),"ledger":ledger(user_id),
+            "paystack_configured":bool(settings.paystack_secret_key)}
 
 
 def quote(tool: str, quantity: float, api: bool=False):
