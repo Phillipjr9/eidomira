@@ -65,6 +65,8 @@ class LatestFrameProcessor:
         try:
             while not self.closed:
                 frame = await self.input.get()
+                started = time.monotonic()
+                steady_state = False
                 rgb = frame.to_ndarray(format="rgb24")
                 # Diagnostic mode validates transport and must preserve the camera feed.
                 # Neural mode may adapt resolution to prevent latency accumulation.
@@ -86,6 +88,7 @@ class LatestFrameProcessor:
                         challenge = self.session.liveness.observe(yaw, face_found)
                         self._send({"type": "liveness", **challenge})
                         result_rgb, latency = rgb, 0.0
+                        steady_state = False
                     else:
                         verified, score = await asyncio.to_thread(
                             self.engine.verify_self, rgb, self.session.identity
@@ -100,6 +103,7 @@ class LatestFrameProcessor:
                                 self.engine.process, rgb, self.session.identity, True
                             )
                             result_rgb, latency, face_found = result.image, result.latency_ms, result.face_found
+                            steady_state = True
                         else:
                             result_rgb, latency = rgb, 0.0
                 else:
@@ -107,6 +111,7 @@ class LatestFrameProcessor:
                         self.engine.process, rgb, self.session.identity, self.session.verified
                     )
                     result_rgb, latency, face_found = result.image, result.latency_ms, result.face_found
+                    steady_state = True
 
                 if self.engine.name != "diagnostic":
                     result_rgb = self.stabilizer.apply(rgb, result_rgb)
@@ -114,9 +119,14 @@ class LatestFrameProcessor:
                 output.pts = frame.pts
                 output.time_base = frame.time_base or Fraction(1, 90000)
                 self.processed += 1
-                self.quality.observe(latency)
+                frame_ms = (time.monotonic() - started) * 1000
+                self.quality.observe(self._observed_latency(steady_state, frame_ms))
                 elapsed = max(.001, time.monotonic() - self.started)
+                # Two numbers, because they answer different questions: inference_ms is the
+                # engine's own work, frame_ms is everything this frame cost including
+                # stabilisation and frame conversion.
                 self._send({"type": "metrics", "inference_ms": round(latency, 1),
+                            "frame_ms": round(frame_ms, 1),
                             "fps": round(self.processed / elapsed, 1), "dropped": self.dropped,
                             "face_found": face_found, "inference_width": rgb.shape[1],
                             "quality": self.quality.preset,
@@ -125,6 +135,25 @@ class LatestFrameProcessor:
         except Exception as exc:
             self._send({"type": "error", "message": str(exc)})
             await self.stop()
+
+    def _observed_latency(self, steady_state: bool, frame_ms: float) -> float:
+        """What the adaptive controller should learn from this frame.
+
+        The controller decides the inference resolution, so it needs the whole per-frame
+        cost, not the engine's own figure: stabilisation and frame conversion were
+        previously invisible to it, which let the pipeline run well over budget while the
+        controller believed it was comfortably inside.
+
+        Only frames that ran the swap are representative — it changes the resolution of
+        that work, and the liveness and verification phases cost a different, one-off
+        amount that would otherwise shrink quality for the whole session. Diagnostic mode
+        has no neural work to adapt.
+
+        Returning 0 makes the controller skip the sample without changing the frame.
+        """
+        if not steady_state or self.engine.name == "diagnostic":
+            return 0.0
+        return frame_ms
 
     def _send(self, payload):
         channel = self.telemetry

@@ -23,7 +23,10 @@ class Settings(BaseSettings):
     parser_model_path: Path = Path("models/face_parser.onnx")
     parser_feather: float = 0.035
     parser_include_ears: bool = True
-    target_inference_ms: float = 45.0
+    # Frame-latency targets live with the presets in app/adaptive.py (32/45/65 ms for
+    # speed/balanced/quality). There is deliberately no single global target here: one
+    # number cannot express three quality modes, and this field was never read by
+    # anything, so setting STUDIO_TARGET_INFERENCE_MS silently did nothing.
     adaptive_min_width: int = 384
     adaptive_interval_frames: int = 24
     livekit_url: str = "ws://127.0.0.1:7880"

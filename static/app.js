@@ -91,7 +91,7 @@ function handleTelemetry(event){
   const j=JSON.parse(event.data);
   if(j.type==='liveness'){$('livenessPrompt').style.display=j.complete?'none':'block';$('livenessText').textContent=j.instruction;$('livenessBar').style.width=Math.round(j.progress*100)+'%';$('verified').textContent=j.complete?'MATCHING':'LIVE CHECK';if(j.expired)status(j.instruction,true)}
   if(j.type==='verification'){$('livenessPrompt').style.display='none';$('verified').textContent=j.verified?'VERIFIED':'FAILED';if(!j.verified)status('Live face does not match the enrolled identity.',true)}
-  if(j.type==='metrics'){$('latency').textContent=j.inference_ms+' ms';$('fps').textContent=j.fps+' FPS';$('dropped').textContent=j.dropped;$('inferenceSize').textContent=j.inference_width+' px';$('outputBadge').textContent=j.face_found?'LIVE':'NO FACE'}
+  if(j.type==='metrics'){$('latency').textContent=j.inference_ms+' ms';$('frameCost').textContent=(j.frame_ms!=null?j.frame_ms+' ms':'— ms');$('fps').textContent=j.fps+' FPS';$('dropped').textContent=j.dropped;$('inferenceSize').textContent=j.inference_width+' px';$('outputBadge').textContent=j.face_found?'LIVE':'NO FACE'}
   if(j.type==='error')status(j.message,true);
 }
 async function updateWebRTCStats(){

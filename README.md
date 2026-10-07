@@ -165,6 +165,41 @@ CPU is visible rather than merely slow.
 When CUDA is absent the InsightFace detector is prepared with `ctx_id=-1`, because a
 non-negative id asks for a GPU context the host does not have.
 
+### What the live frame budget is spent on
+
+The adaptive controller holds the frame pipeline at a latency target — 32 / 45 / 65 ms for
+the speed / balanced / quality presets, in `app/adaptive.py` — by adjusting inference
+resolution. It measures the **whole frame**: engine work, stabilisation and frame
+conversion. Feeding it only the engine's own figure let the pipeline run about a third over
+budget without the controller noticing.
+
+Telemetry carries both numbers, and the studio panel shows them as `Latency` and `Frame`:
+
+| Field | Meaning |
+| --- | --- |
+| `inference_ms` | The engine's own work: detection, swap, optional parser. |
+| `frame_ms` | Everything that frame cost, which is what the controller acts on. |
+
+The gap between them is worth watching. On a 2-vCPU cloud instance the stabiliser alone
+measured **14.9 ms at 960×540 — 33% of the 45 ms budget** (8.1 ms at 768×432, 2.5 ms at the
+512×288 floor). Frame conversion and colour conversion are negligible by comparison, around
+0.1 ms.
+
+Liveness and verification frames are deliberately excluded from the controller's samples.
+They cost a different, one-off amount, and letting them in would shrink quality for the rest
+of the session.
+
+None of this requires a GPU. The CPU fallback runs the full pipeline; what changes is the
+resolution and frame rate it can sustain. Offline photo and batch work is comfortable on
+CPU. The live path is budgeted for an accelerator, and "accelerator" need not mean external:
+the registry above resolves a local GPU, an integrated one through DirectML, Apple Silicon
+through CoreML, or a hosted GPU identically.
+
+Two things to know before sizing hardware. There are **no face-swap weights in this
+repository** — `models/` holds only the MediaPipe bundle behind the on-device demo — and the
+INSwapper weights are non-commercial, so what may be shipped is a licensing question that
+comes before any hardware decision.
+
 ## Important MVP limitation
 
 Direct peer-to-worker WebRTC is implemented for the MVP. Before a high-concurrency launch, add a production TURN service and regional SFU/gateway rather than terminating every public peer directly on GPU workers. The current scheduler deliberately drops stale frames instead of accumulating latency, but GPU admission control is still required for multiple simultaneous neural sessions.
