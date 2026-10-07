@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     #: One-click demo sign-in. Off by default, refused outright over https, and the demo
     #: passwords are random — see app/demo.py for why none of that is negotiable.
     demo_login: bool = False
+    #: Optional, and deliberately blank: setting it *publishes* a credential, because the
+    #: login card shows it and the accounts then accept it on the ordinary sign-in form. It
+    #: only takes effect while demo_login is on, and it must satisfy the normal password
+    #: rules. Left blank, the demo passwords stay random and the buttons are the only way in.
+    demo_password: str = ""
     rate_limit_per_minute: int = 120
     enrollment_limit_per_hour: int = 20
     # Failed sign-ins allowed per account per hour, on top of the per-IP limit.

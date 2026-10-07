@@ -160,6 +160,15 @@
           if (account) button.querySelector("[data-email]").textContent = account.email;
           button.addEventListener("click", () => demoSignIn(button));
         });
+        if (methods.demo_password) {
+          const hint = $("#demoHint");
+          const shown = document.createElement("code");
+          shown.textContent = methods.demo_password;
+          el.demoRow.querySelector("[data-demo-label]").textContent =
+            "Demo access · one click, or sign in with the password below";
+          hint.replaceChildren("Both accounts accept the same password — ", shown);
+          hint.hidden = false;
+        }
         el.demoRow.hidden = false;
       } catch {
         /* a demo is a convenience; the form is the product */

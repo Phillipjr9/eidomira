@@ -34,6 +34,11 @@ ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 DEMO_EMAILS = list(demo.ACCOUNTS.values())
 
+#: What an owner might set as STUDIO_DEMO_PASSWORD: long enough for the ordinary rules, and
+#: obvious about being a demo. The point of it is to be published, so the tests treat it the
+#: way the card does.
+CONFIGURED_PASSWORD = "demo-account-2026"
+
 
 @pytest.fixture(autouse=True)
 def _always_isolated(isolated_db):
@@ -45,6 +50,16 @@ def demo_on(monkeypatch, isolated_db):
     """The flag on, a local URL, and the accounts seeded — the state a preview runs in."""
     monkeypatch.setattr(settings, "demo_login", True)
     monkeypatch.setattr(settings, "public_url", "http://127.0.0.1:8000")
+    demo.ensure_accounts()
+    return demo
+
+
+@pytest.fixture
+def demo_on_with_password(monkeypatch, isolated_db):
+    """The flag on, a local URL, and a password the owner has chosen to publish."""
+    monkeypatch.setattr(settings, "demo_login", True)
+    monkeypatch.setattr(settings, "public_url", "http://127.0.0.1:8000")
+    monkeypatch.setattr(settings, "demo_password", CONFIGURED_PASSWORD)
     demo.ensure_accounts()
     return demo
 
@@ -150,7 +165,13 @@ def test_no_page_carries_a_demo_credential():
     for email in DEMO_EMAILS:
         assert email not in pages, f"{email} is written into a page"
     assert "eidomira.test" not in pages
-    assert not re.search(r'(?i)password\s*[:=]\s*["\'][^"\']+["\']', pages), \
+    # Shape, not intent: an identifier ending in `password`, then `:` or `=`, then a quoted
+    # value with no spaces and at least six characters — what an assigned credential looks
+    # like, including `DEMO_PASSWORD = ...`, which a bare word-boundary check misses because
+    # `_` is a word character. Prose that merely mentions the word is not a credential, and
+    # requiring a single token is what separates the two. A committed password with a space in
+    # it would slip past; the exact-value checks above cover the values actually in use.
+    assert not re.search(r"""(?i)\w*password\s*[:=]\s*["'][^"'\s]{6,}["']""", pages), \
         "a password literal appears in a page"
 
 
@@ -240,6 +261,93 @@ def test_an_omitted_role_gets_the_customer_and_never_the_administrator(demo_on):
     assert response.status_code == 200
     assert response.json()["user"]["email"] == demo.ACCOUNTS["user"]
     assert response.json()["user"]["role"] == "user"
+
+
+# ── the optional password an owner may choose to publish ──────────────────────
+
+def test_a_configured_password_signs_in_on_the_ordinary_form(demo_on_with_password):
+    """The point of the setting: the accounts can be typed into the normal sign-in, not only
+    opened by the button — so the demo also demonstrates the real flow."""
+    for email in DEMO_EMAILS:
+        user = authenticate(email, CONFIGURED_PASSWORD)
+        assert user and user["email"] == email
+
+    with TestClient(app) as client:
+        response = client.post("/api/auth/login",
+                               json={"email": demo.ACCOUNTS["admin"], "password": CONFIGURED_PASSWORD})
+
+    assert response.status_code == 200
+    assert response.json()["user"]["role"] == "admin"
+
+
+def test_the_configured_password_is_the_only_one_that_works(demo_on_with_password):
+    for guess in ("demo", "admin", "demo-account", CONFIGURED_PASSWORD + "x", ""):
+        assert authenticate(DEMO_EMAILS[0], guess) is None, f"accepted {guess!r}"
+
+
+def test_the_card_is_offered_the_password_when_one_is_configured(demo_on_with_password):
+    with TestClient(app) as client:
+        methods = client.get("/api/auth/methods").json()
+
+    assert methods["demo_password"] == CONFIGURED_PASSWORD
+    for name in ("app.js", "landing.js"):
+        assert "demo_password" in (STATIC / name).read_text(encoding="utf-8"), \
+            f"{name} never reads the configured password"
+    for name in ("app.html", "index.html"):
+        markup = (STATIC / name).read_text(encoding="utf-8")
+        assert 'id="demoHint"' in markup, f"{name} has nowhere to print it"
+
+
+def test_without_one_there_is_no_password_on_the_card_at_all(demo_on):
+    with TestClient(app) as client:
+        methods = client.get("/api/auth/methods").json()
+
+    assert methods["demo_password"] is None
+
+
+def test_the_password_is_withheld_while_the_demo_is_off(monkeypatch, isolated_db):
+    """Set but not switched on is not a reason to hand a credential to a public API."""
+    monkeypatch.setattr(settings, "demo_password", CONFIGURED_PASSWORD)
+
+    with TestClient(app) as client:
+        methods = client.get("/api/auth/methods").json()
+
+    assert methods["demo_login"] is False
+    assert methods["demo_password"] is None
+    assert CONFIGURED_PASSWORD not in page_text("app.html", "index.html", "app.js", "landing.js")
+
+
+def test_changing_the_password_updates_accounts_that_already_exist(demo_on, monkeypatch):
+    """Restarting is the only step in changing it: the accounts are not recreated, and the
+    credits somebody was looking at are not reset."""
+    assert authenticate(DEMO_EMAILS[1], CONFIGURED_PASSWORD) is None
+    before = {row["email"]: row for row in users()}
+
+    monkeypatch.setattr(settings, "demo_password", CONFIGURED_PASSWORD)
+    assert demo.ensure_accounts() == []
+
+    assert authenticate(DEMO_EMAILS[1], CONFIGURED_PASSWORD)
+    assert {row["email"]: row for row in users()} == before
+
+
+def test_a_password_the_ordinary_rules_refuse_switches_the_demo_off(monkeypatch, isolated_db):
+    """Short, so `register` would refuse it. Refused at the flag instead of crashing at boot,
+    and loudly: the alternative is a startup traceback nobody reads until the page is broken."""
+    monkeypatch.setattr(settings, "demo_login", True)
+    monkeypatch.setattr(settings, "public_url", "http://127.0.0.1:8000")
+    monkeypatch.setattr(settings, "demo_password", "short")
+
+    assert demo.enabled() is False
+    reason = demo.refusal_reason()
+    assert reason and "10" in reason
+
+    with TestClient(app) as client:
+        assert client.post("/api/auth/demo-login", json={"role": "user"}).status_code == 404
+        methods = client.get("/api/auth/methods").json()
+
+    assert methods["demo_login"] is False
+    assert methods["demo_password"] is None
+    assert users() == []
 
 
 def test_the_demo_passwords_are_not_guessable(demo_on):

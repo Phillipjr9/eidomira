@@ -320,6 +320,9 @@ def auth_methods():
         # the button asks for a session instead of filling the form in.
         "demo_accounts": ([{"role": role, "email": email} for role, email in demo.ACCOUNTS.items()]
                           if on else []),
+        # Present only when an owner set STUDIO_DEMO_PASSWORD, and only while the demo is on.
+        # The card prints it, which is the entire point of setting one.
+        "demo_password": demo.published_password(),
     }
 
 

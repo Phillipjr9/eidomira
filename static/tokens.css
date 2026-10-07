@@ -459,6 +459,15 @@ body.has-pointer .fx-spot { opacity: 1; }
 .demoButton b { font-weight: 600; }
 .demoButton code { font-family: var(--mono); font-size: 10.5px; color: var(--paper-3); }
 .demoButton code:empty { display: none; }
+.demoHint {
+  width: 100%;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--paper-3);
+}
+.demoHint code { color: var(--cyan-soft); word-break: break-all; }
 .demoButton:hover { border-color: var(--cyan-soft); color: var(--paper); }
 .demoButton:disabled { opacity: 0.5; cursor: default; }
 

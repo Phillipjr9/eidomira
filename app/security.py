@@ -15,6 +15,9 @@ from app.config import settings
 from app.database import database
 
 EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+#: The one place the length rule lives. A configured demo password is checked against it
+#: too: it reaches `register`, and a rule enforced in two places drifts.
+MINIMUM_PASSWORD = 10
 hasher = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 
 # A throwaway hash of a random secret, used to spend the same argon2 work when an
@@ -40,7 +43,8 @@ def _spend_verification(password: str) -> None:
 def register(email: str, password: str):
     email = email.strip().lower()
     if not EMAIL.fullmatch(email): raise ValueError("Enter a valid email address")
-    if len(password) < 10: raise ValueError("Password must contain at least 10 characters")
+    if len(password) < MINIMUM_PASSWORD:
+        raise ValueError(f"Password must contain at least {MINIMUM_PASSWORD} characters")
     user_id = uuid.uuid4().hex
     try:
         database.execute("INSERT INTO users(id,email,password_hash,created_at) VALUES(?,?,?,?)",

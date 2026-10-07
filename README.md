@@ -636,9 +636,14 @@ before the password because that is the only ordering that slows guessing down. 
 — that open a seeded account without a password. Each button names the account it opens
 (`demo@eidomira.test`, `admin@eidomira.test`); the addresses arrive from
 `/api/auth/methods` at run time, so the card cannot advertise an account that does not
-exist. No *password* is published anywhere — they are random strings that exist in no file
-and are never shown — because the button mints a session instead of typing a credential, and
-a password printed on a public page would be a real account anyone could walk into. The
+exist. No *password* is published by default — they are random strings that exist in no file and
+are never shown — because the button mints a session instead of typing a credential, and a
+password printed on a public page would be a real account anyone could walk into. If you do
+want a credential you can type, set `STUDIO_DEMO_PASSWORD` (10 characters or more, the same
+rule the sign-up form applies): both demo accounts then accept it on the ordinary sign-in
+form and the card prints it, which is the entire point of setting one. It is honoured only
+while demo sign-in is on, changing it takes effect on the next restart, and leaving it unset
+keeps the buttons as the only way in. The
 `.test` domain is reserved by RFC 2606, so the addresses cannot collide with a customer or
 receive mail. Setting the flag while `STUDIO_PUBLIC_URL` is `https://`
 turns the feature **off, not on** — an administrator account one click from a public page

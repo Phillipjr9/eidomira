@@ -92,6 +92,13 @@ async function loadAuthMethods(){
       if(account)button.querySelector('[data-email]').textContent=account.email;
       button.onclick=()=>demoSignIn(button);
     });
+    if(methods.demo_password){
+      const hint=$('demoHint'),shown=document.createElement('code');
+      shown.textContent=methods.demo_password;
+      $('demoRow').querySelector('[data-demo-label]').textContent='Demo access · one click, or sign in with the password below';
+      hint.replaceChildren('Both accounts accept the same password — ',shown);
+      hint.hidden=false;
+    }
     $('demoRow').hidden=false;
   }catch{/* a demo is a convenience; the form is the product */}
 }

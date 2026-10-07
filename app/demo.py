@@ -17,6 +17,10 @@ So:
 * the passwords are random and appear nowhere, not in a page and not in this file, because
   the one-click path does not need one — it mints a session, which is the thing actually
   being asked for;
+* an owner who wants a password they can *type* can set `STUDIO_DEMO_PASSWORD`, which makes
+  the demo accounts accept it on the ordinary sign-in form and prints it on the card. That is
+  the whole purpose of setting it, so it is only honoured while the demo is on, and it has to
+  pass the same length rule as any other password;
 * the addresses are in the reserved `.test` domain (RFC 2606), so they can never collide
   with a customer's address or receive real mail;
 * and the owner console marks them, so an administrator does not mistake a demo account for
@@ -30,10 +34,12 @@ from __future__ import annotations
 import secrets
 import time
 
+from argon2.exceptions import InvalidHashError, VerificationError
+
 from app.billing import create_trial
 from app.config import settings
 from app.database import database
-from app.security import register as register_account
+from app.security import MINIMUM_PASSWORD, hasher, register as register_account
 
 #: Reserved by RFC 2606 for exactly this: names that can never be real.
 DOMAIN = "eidomira.test"
@@ -51,6 +57,15 @@ def refusal_reason() -> str | None:
             "stays off: on a public page it would hand out an administrator account to "
             "anyone who loads it. Use real accounts, or run the demo on a local URL."
         )
+    if settings.demo_password and len(settings.demo_password) < MINIMUM_PASSWORD:
+        # Refused rather than truncated or padded: the accounts are created through the
+        # ordinary registration path, which enforces this rule, and a demo account that
+        # could not have been registered normally would demonstrate the wrong thing.
+        return (
+            f"STUDIO_DEMO_PASSWORD is shorter than {MINIMUM_PASSWORD} characters, which the "
+            "ordinary sign-in rules refuse, so demo sign-in stays off. Use a longer password, "
+            "or leave it unset to keep the random ones."
+        )
     return None
 
 
@@ -62,6 +77,32 @@ def is_demo_email(email: str | None) -> bool:
     return bool(email) and email.strip().lower().endswith("@" + DOMAIN)
 
 
+def published_password() -> str | None:
+    """The password the card is allowed to print, or None when the demo is button-only.
+
+    None whenever the demo is off, so the API never hands out a credential for a feature that
+    is not running.
+    """
+    return settings.demo_password if (enabled() and settings.demo_password) else None
+
+
+def _adopt_configured_password(user_id: str, current_hash: str) -> None:
+    """Bring a seeded account's password in line with the configured one.
+
+    Only when one is configured: otherwise the random password from seeding stands, which is
+    exactly the point — nobody, including whoever reads the database, can sign in with it.
+    """
+    if not settings.demo_password:
+        return
+    try:
+        if hasher.verify(current_hash, settings.demo_password):
+            return
+    except (VerificationError, InvalidHashError):
+        pass
+    database.execute("UPDATE users SET password_hash=? WHERE id=?",
+                     (hasher.hash(settings.demo_password), user_id))
+
+
 def ensure_accounts() -> list[str]:
     """Create whichever demo accounts are missing. Returns the addresses it created.
 
@@ -69,17 +110,23 @@ def ensure_accounts() -> list[str]:
     accounts or reset the credits somebody was looking at. Both accounts get the ordinary
     verified-email trial, because a demo account that behaves unlike a real one demonstrates
     the wrong thing.
+
+    It also keeps existing demo accounts' passwords in step with `STUDIO_DEMO_PASSWORD`, so
+    changing that setting takes effect on the next boot rather than only for accounts created
+    afterwards.
     """
     created: list[str] = []
     for role, email in ACCOUNTS.items():
-        existing = database.one("SELECT id,role FROM users WHERE email=?", (email,))
+        existing = database.one("SELECT id,role,password_hash FROM users WHERE email=?", (email,))
         if existing:
             if role == "admin" and existing["role"] != "admin":
                 database.execute("UPDATE users SET role='admin' WHERE id=?", (existing["id"],))
+            _adopt_configured_password(existing["id"], existing["password_hash"])
             continue
-        # The password is a random string nobody is ever shown, so password sign-in to a
-        # demo account is not possible even for someone who knows the address.
-        user = register_account(email, secrets.token_urlsafe(32))
+        # Random unless an owner configured one: nobody is ever shown the random value, so
+        # password sign-in to a demo account is impossible even for someone who knows the
+        # address, and the button is the only way in.
+        user = register_account(email, settings.demo_password or secrets.token_urlsafe(32))
         database.execute("UPDATE users SET email_verified_at=?, role=? WHERE id=?",
                          (int(time.time()), role, user["id"]))
         create_trial(user["id"])
