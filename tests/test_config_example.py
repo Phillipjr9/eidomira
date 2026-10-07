@@ -19,12 +19,33 @@ EXAMPLE = Path(__file__).resolve().parents[1] / ".env.example"
 
 
 def example_variables() -> list[str]:
+    """Every variable the file offers, commented-out templates included.
+
+    The comments count on purpose: they are the lines an operator uncomments. A template
+    with the wrong name — the file used to offer `SMTP_HOST=`, which no setting reads — is
+    the same silent failure as a live line with the wrong name, and it was invisible here
+    because only prefixed lines were collected.
+    """
     names = []
-    for line in EXAMPLE.read_text().splitlines():
-        line = line.strip()
-        if line.startswith(("STUDIO_", "EIDOMIRA_")) and "=" in line:
-            names.append(line.split("=", 1)[0])
+    for raw in EXAMPLE.read_text().splitlines():
+        line = raw.strip().lstrip("#").strip()
+        if not line or line.startswith(("#", "-", "/", "<")) or "=" not in line:
+            continue
+        name = line.split("=", 1)[0].strip()
+        if name and name.replace("_", "").isalnum() and name.upper() == name:
+            names.append(name)
     return names
+
+
+def test_every_variable_the_example_offers_is_one_something_reads():
+    """Bare names are the trap this file keeps falling into: set `SMTP_HOST` and the mailer
+    keeps its default, with no error anywhere to search for."""
+    unprefixed = [name for name in example_variables()
+                  if not name.startswith(("STUDIO_", "EIDOMIRA_"))]
+    assert not unprefixed, (
+        f".env.example offers {unprefixed}, which nothing reads — settings need the "
+        f"STUDIO_ prefix, and provider overrides need EIDOMIRA_"
+    )
 
 
 def test_the_example_file_exists():
