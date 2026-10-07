@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from aiortc import RTCPeerConnection, RTCSessionDescription
 
-from app.config import settings
+from app.config import DEVELOPMENT_AUTH_SECRET, settings
 from app.ice import rtc_configuration
 from app.calls import create_room_name, create_call_token
 from app.security import register, authenticate, access_token, optional_user, authenticated_user, issue_email_token, verify_email_token
@@ -104,6 +104,23 @@ def report_proxy_trust():
             "(PUBLIC_URL=%s). If a reverse proxy sits in front, every caller shares one "
             "rate-limit bucket and cannot be told apart. Set FORWARDED_ALLOW_IPS to the "
             "proxy address or network.", allowed, settings.public_url)
+
+
+@app.on_event("startup")
+def report_signing_key():
+    """Make a forgeable session key visible at boot.
+
+    `STUDIO_AUTH_SECRET` signs every session and verification token, so the shipped
+    default means anyone who has read the repository can mint a token for any account.
+    The application otherwise works perfectly, which is exactly why it needs saying.
+    """
+    if settings.auth_secret != DEVELOPMENT_AUTH_SECRET:
+        return
+    logging.getLogger("uvicorn.error").warning(
+        "STUDIO_AUTH_SECRET is still the default value shipped in this repository, so "
+        "session and verification tokens can be forged by anyone who knows it. Set it "
+        "to a random value before exposing this service to anyone."
+    )
 
 
 @app.on_event("shutdown")

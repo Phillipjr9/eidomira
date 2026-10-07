@@ -6,6 +6,7 @@ from .base import Enrollment, FaceSwapEngine, FrameResult
 from app.providers import describe_providers, execution_providers
 from app.config import settings
 from app.compositor import SemanticCompositor
+from app.enhance import FaceRestorer, transfer_tone
 
 
 class InSwapperEngine(FaceSwapEngine):
@@ -34,6 +35,13 @@ class InSwapperEngine(FaceSwapEngine):
             self.compositor = SemanticCompositor(
                 str(settings.parser_model_path), settings.parser_feather,
                 settings.parser_include_ears,
+            )
+        # Optional: without a model the swap is simply softer, which is the honest
+        # behaviour rather than a startup failure.
+        self.restorer = None
+        if settings.restoration_model_path.exists():
+            self.restorer = FaceRestorer(
+                str(settings.restoration_model_path), settings.restoration_visibility,
             )
 
     def _faces(self, rgb):
@@ -66,6 +74,16 @@ class InSwapperEngine(FaceSwapEngine):
         yaw = float((points[2, 0] - eye_mid[0]) / eye_distance)
         return True, yaw
 
+    @staticmethod
+    def _bbox_alpha(rgb, bbox, feather=.035):
+        """A feathered mask over the face box, for when there is no parser model."""
+        height, width = rgb.shape[:2]
+        x1, y1, x2, y2 = SemanticCompositor._expanded_bbox(bbox, width, height)
+        alpha = np.zeros((height, width), np.float32)
+        alpha[y1:y2, x1:x2] = 1.0
+        blur = max(3, int(min(x2 - x1, y2 - y1) * feather) | 1)
+        return cv2.GaussianBlur(alpha, (blur, blur), 0)
+
     def process(self, rgb, identity, verified):
         start = time.perf_counter()
         bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
@@ -75,8 +93,18 @@ class InSwapperEngine(FaceSwapEngine):
         target = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
         result = self.swapper.get(bgr, target, identity, paste_back=True)
         out = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+        # Restoration rebuilds what the 128px swap lost, before the mask decides how much
+        # of it reaches the frame.
+        if self.restorer is not None:
+            out = self.restorer.enhance(out, target.bbox)
         if self.compositor is not None:
-            out, _ = self.compositor.blend(rgb, out, target.bbox)
+            out, alpha = self.compositor.blend(rgb, out, target.bbox)
+        else:
+            alpha = self._bbox_alpha(rgb, target.bbox)
+        # Then put the result into the target's own lighting, which is the other thing a
+        # viewer reads as "pasted in" even when the geometry is perfect.
+        if settings.tone_transfer_strength > 0:
+            out = transfer_tone(rgb, out, alpha, settings.tone_transfer_strength)
         cv2.putText(out, "SYNTHETIC", (12, out.shape[0]-14), cv2.FONT_HERSHEY_SIMPLEX,
                     .48, (235, 225, 255), 1, cv2.LINE_AA)
         return FrameResult(out, True, verified, (time.perf_counter()-start)*1000)

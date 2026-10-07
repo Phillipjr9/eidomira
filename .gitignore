@@ -3,6 +3,8 @@ __pycache__/
 .pytest_cache/
 .env
 .env.*
+# ...but the template is meant to be committed: the README tells operators to copy it.
+!.env.example
 license*/
 licensed-models/
 *.onnx

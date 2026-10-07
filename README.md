@@ -150,7 +150,7 @@ InsightFace code and pretrained weights have different licenses. Pretrained InSw
 
 ### Execution providers
 
-The adapter does not assume CUDA. At startup `app/engines/providers.py` asks ONNX Runtime
+The adapter does not assume CUDA. At startup `app/providers.py` asks ONNX Runtime
 which providers the host exposes, then orders them by expected throughput — TensorRT,
 CUDA, ROCm, MIGraphX, DirectML, CoreML, OpenVINO — and keeps CPU last as the fallback.
 The resolved list is reported by `GET /api/health` as `provider`, `providers` and
@@ -240,6 +240,65 @@ face, instead of blending the last swapped face back over it.
 None of this has been seen running against a real swap, because there are no weights to run
 it against. The metrics exist so that when there are, the claim is checked rather than
 believed.
+
+### Closing the realism gap
+
+The gap between Eidomira's raw swap and the best tools is **not the swap model**, and it is
+worth being precise about that, because the obvious move — find a stronger swapper — leads
+nowhere. `inswapper` already leads the one-shot class on identity retrieval (93.52 against
+SimSwap's 92.25 and DeepFaceLab's 89.56) and wins Attribute, Anti-Occlusion and Fidelity
+too. Its characteristic failure is that it *drifts toward the target face instead of
+producing obvious artifacts*, so a raw result reads as soft and slightly wrong rather than
+visibly broken.
+
+The difference is the stack around it. Every production pipeline converges on the same one:
+
+```
+detect → swap at 128 → pixel-boost to 256/512 → restoration at 0.7–0.8 visibility
+       → occluder-preserving mask → LAB tone transfer → soft-mask paste
+```
+
+`inswapper_128` emits a 128×128 face, which is why a raw swap looks soft until restoration
+is stacked on top. Two parts of that stack are now implemented:
+
+| Stage | Where | Effect (synthetic frames) |
+| --- | --- | --- |
+| LAB tone transfer | `app/enhance.py` → `transfer_tone()` | A face lit 25 levels from its room moves from 146 to **165** against a surround of 169; colour distance **32.9 → 7.2**. Symmetric in the other direction, and a face that already matches moves **0.04** levels. |
+| Restoration at partial visibility | `app/enhance.py` → `FaceRestorer` | **Inactive.** Starts only when a model file is present. |
+
+Restoration is deliberately a **pluggable file** rather than a hardcoded dependency, and
+which file it may be is a licensing question rather than a technical one:
+
+| Model | Licence | Shippable in a paid product |
+| --- | --- | --- |
+| GFPGAN v1.4 | Apache-2.0 | **yes** |
+| GPEN-BFR-512 | Apache-2.0 code | yes, verify the weights |
+| CodeFormer | NTU S-Lab License 1.0 | **no** — non-commercial; the strongest on paper, and not usable here |
+| inswapper_128 | non-commercial research (code MIT) | not as-is — InsightFace **sells** a commercial licence |
+
+Code and model licences have to be checked separately: InsightFace's code is MIT while its
+pre-trained models are not. `docs/quality-and-licensing.md` records the full inventory and
+the sources behind it.
+
+Settings, all optional:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `STUDIO_TONE_TRANSFER_STRENGTH` | `1.0` | How far to pull the swapped face into the target's lighting. `0` disables it. |
+| `STUDIO_RESTORATION_MODEL_PATH` | `models/gfpgan_1.4.onnx` | Restoration model. Absent file means the stage is skipped, not an error. |
+| `STUDIO_RESTORATION_VISIBILITY` | `0.75` | Blend strength for restoration. Full strength looks airbrushed. |
+
+Tone transfer's statistics are taken from inside the feather rather than across it: the
+transition ring is part target and part source, so including it pulls both sets of
+statistics toward each other and quietly weakens the correction. The gain is clamped, which
+matters more than it sounds — an unbounded gain matches the reference's *contrast*, so a
+low-contrast face carrying sensor grain gets its grain stretched to full texture strength.
+On the synthetic case that is a 9.3× contrast increase without the clamp and 0.93× with it.
+
+Still missing from the stack, in the order they block a launch: **trained swap weights in
+`models/`**, the **inswapper commercial licence**, and pixel-boost to 256/512. Until the
+first two exist, nothing here has been run against a real swap, and no parity with any
+competitor is claimed.
 
 ## Important MVP limitation
 

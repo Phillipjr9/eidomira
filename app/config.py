@@ -2,6 +2,10 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+#: The value shipped here and in `.env.example`. Not a secret: it is in the repository.
+DEVELOPMENT_AUTH_SECRET = "development-only-change-me"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="STUDIO_", env_file=".env")
     backend: str = "diagnostic"
@@ -22,6 +26,11 @@ class Settings(BaseSettings):
     temporal_motion_threshold: float = 24.0
     parser_model_path: Path = Path("models/face_parser.onnx")
     parser_feather: float = 0.035
+    # Post-swap refinement. The restoration model is optional and inactive unless the
+    # file exists: see docs/quality-and-licensing.md for which ones may be shipped.
+    restoration_model_path: Path = Path("models/gfpgan_1.4.onnx")
+    restoration_visibility: float = 0.75
+    tone_transfer_strength: float = 1.0
     parser_include_ears: bool = True
     # Frame-latency targets live with the presets in app/adaptive.py (32/45/65 ms for
     # speed/balanced/quality). There is deliberately no single global target here: one
@@ -35,7 +44,10 @@ class Settings(BaseSettings):
     call_token_ttl: int = 3600
     call_room_prefix: str = "eidomira"
     database_path: Path = Path("data/eidomira.db")
-    auth_secret: str = "development-only-change-me"
+    # Signing key for session and verification tokens. Anyone who knows it can mint a
+    # valid token for any account, and nothing behaves differently while it is wrong, so
+    # app.main warns at boot rather than trusting it to be noticed.
+    auth_secret: str = DEVELOPMENT_AUTH_SECRET
     access_token_ttl: int = 3600
     require_auth: bool = False
     rate_limit_per_minute: int = 120
