@@ -339,6 +339,37 @@ Still missing from the stack, in the order they block a launch: **trained swap w
 been run against a real swap, no quality claim is a measurement, and no parity with any
 competitor is claimed.
 
+### The lab: can this run in the browser instead of on the server?
+
+`/lab` answers that on your own device rather than in an argument. It runs the boost from
+`app/boost.py` — ported to JavaScript in `static/boost.js` — on your phone or laptop, through
+the same ONNX runtime a real browser deployment would use, and reports what it cost.
+
+There are no swap weights on the server, so the model it runs is a **0.3 KB stand-in**: one
+depthwise convolution, close enough to the identity that the only resolution loss in the
+picture is the 128-pixel crop grid, which is exactly what the boost undoes. That makes the
+boost's effect visible — switch between 1× and 3× and watch the detail come back — while the
+runtime path is genuinely exercised. A real swapper is ~554 MB and orders of magnitude slower,
+so every number the lab reports is a floor.
+
+It measures, per frame: the crop sampling, the tensor pack, the inference, the unpack, and the
+interleave; averaged over 30 frames, with the device's own memory class, CPU threads, GPU
+adapter and WebGPU availability reported beside them. Two costs that are easy to hide are on
+screen instead: the `getImageData` readback per pass, and the fact that multi-threaded wasm
+needs cross-origin isolation this application does not send — the lab asks for one thread and
+says so.
+
+Two implementations of one algorithm drift, and the browser one cannot be run by the test
+suite. So `tests/test_boost_parity.py` generates fixtures *from the Python*, and
+`tests/boost_parity.mjs` asserts the JavaScript reproduces the sampled rectangles **and** the
+canvas byte for byte. A second test corrupts one byte of a pass buffer and asserts the checker
+rejects it, because a parity test that cannot fail proves nothing.
+
+The landing page's hero no longer shows a sample result. It used to present a stock image as
+"Eidomira output" — a result this repository cannot produce, since there are no swap weights
+in `models/`. Real captures go in its place; `landing.css` already styles `.pane__img` for
+them.
+
 ### The trainer: watching for defects, and tuning what it may
 
 `app/trainer.py` watches every sampled frame of a live session. **It cannot retrain the

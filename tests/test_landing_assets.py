@@ -13,7 +13,12 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 INDEX = (STATIC / "index.html").read_text(encoding="utf-8")
+
+#: Markup with the comments taken out. A commented-out tag is never fetched by a browser, so a
+#: missing file inside one is not a defect — and an example documenting where a real asset
+#: should go is exactly the kind of comment a landing page accumulates.
 LANDING_JS = (STATIC / "landing.js").read_text(encoding="utf-8")
+LIVE_MARKUP = re.sub(r"<!--.*?-->", "", INDEX, flags=re.S)
 
 VOID_ELEMENTS = {
     "area", "base", "br", "col", "embed", "hr", "img", "input",
@@ -83,7 +88,7 @@ def test_aria_references_resolve():
 
 
 def test_every_referenced_static_asset_is_committed():
-    assets = set(re.findall(r'(?:src|href)="(/static/[^"]+)"', INDEX))
+    assets = set(re.findall(r'(?:src|href)="(/static/[^"]+)"', LIVE_MARKUP))
     assert assets, "landing page references no static assets"
     missing = sorted(a for a in assets if not (ROOT / a.lstrip("/")).exists())
     assert not missing, f"referenced but missing on disk: {missing}"

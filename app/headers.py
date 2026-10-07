@@ -5,8 +5,10 @@ from fastapi import Request
 # else — the private workspace and the API — keeps the strict anti-framing policy.
 EMBEDDABLE_PATHS = {"/", "/index.html"}
 
-# The on-device landing demo fetches a pinned MediaPipe build. `script-src` already allowed
-# this CDN; the WASM runtime is fetched at run time, so `connect-src` and `worker-src` need it.
+# Two on-device pages fetch from this CDN: the landing demo pulls a pinned MediaPipe build,
+# and the lab at /lab pulls a pinned onnxruntime-web and its wasm binary. `script-src` allows
+# the origin; the wasm is fetched at run time, so `connect-src` and `worker-src` need it too,
+# and `wasm-unsafe-eval` is what lets the browser compile either of them.
 DEMO_CDN = "https://cdn.jsdelivr.net"
 
 

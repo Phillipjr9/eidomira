@@ -166,6 +166,14 @@ def landmark_model():
     )
 
 
+@app.get("/lab", include_in_schema=False)
+def lab():
+    """The on-device runtime lab. Public and unauthenticated on purpose: it holds no session,
+    no identity and no frames — it runs entirely in the visitor's browser, and its whole point
+    is for someone to open it on their own device without signing up first."""
+    return FileResponse(ROOT / "static" / "lab" / "boost-lab.html")
+
+
 @app.get("/app")
 def private_app(user=Depends(authenticated_user)):
     return FileResponse(ROOT / "static" / "app.html")

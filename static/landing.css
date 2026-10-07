@@ -437,6 +437,27 @@ body.drawer-open .drawer { transform: none; opacity: 1; pointer-events: auto; }
 }
 .pane--out .pane__img { transform: scale(1.06); }
 
+/* Shown until a real capture replaces it. Deliberately a held-open frame rather than a
+   picture of something: an empty pane that says "waiting" is honest, and a stock face is not. */
+.pane__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--paper-4);
+  background:
+    radial-gradient(120% 90% at 50% 15%, rgba(255,255,255,.05), transparent 60%),
+    repeating-linear-gradient(115deg, #0e0e16 0 14px, #101019 14px 28px);
+}
+.pane__empty svg { opacity: .38; }
+.pane--source .pane__empty { filter: grayscale(1) brightness(.85); }
+.pane__empty--out {
+  background:
+    radial-gradient(120% 90% at 50% 20%, rgba(139,92,246,.14), transparent 62%),
+    repeating-linear-gradient(115deg, #0e0e16 0 14px, #101019 14px 28px);
+}
+.pane__empty--out svg { opacity: .5; color: var(--violet-soft); }
+
 /* the "processing" wipe that sweeps across the output pane */
 .pane--out::after {
   content: "";

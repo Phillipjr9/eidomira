@@ -8,6 +8,8 @@ __pycache__/
 license*/
 licensed-models/
 *.onnx
+# ...except the lab's stand-in: 277 bytes, no license to respect, and the page 404s without it.
+!static/lab/swapper-standin.onnx
 *.db
 *.pem
 # Written at runtime: the trainer's per-session reports, and the settings the offline
