@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # within their bounds. It cannot retrain the swap model: there are no weights here.
     trainer_enabled: bool = True
     trainer_sample_every: int = 30
+    #: Save measured frames as pairs the offline search can replay. 0 is off; every saved
+    #: frame costs two PNG encodes on top of the measurement.
+    trainer_capture_limit: int = 0
+    trainer_capture_dir: Path = Path("captures")
     trainer_report_dir: Path = Path("reports")
     # Frame-latency targets live with the presets in app/adaptive.py (32/45/65 ms for
     # speed/balanced/quality). There is deliberately no single global target here: one

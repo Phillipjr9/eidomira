@@ -353,6 +353,19 @@ python -m tools.train_defaults --pairs ./captures     # real saved *_original/_s
 python -m tools.train_defaults --pairs ./captures --json --no-write
 ```
 
+Generated cases prove the search works. They cannot tell you what *your* sessions get
+wrong, which is the question worth asking — so set `STUDIO_TRAINER_CAPTURE_LIMIT=200` and
+the trainer writes every measured frame to `captures/` as the pair the tool reads. Then:
+
+```bash
+python -m tools.train_defaults --pairs captures       # searches the defects that happened
+```
+
+That loop is the one that matters: the live session records its own failures, and the
+offline search answers whether a different setting would have avoided them. Nothing is
+captured by default — two PNG encodes cost more than the measurement itself, and the
+frames contain faces, so turning it on is a deliberate act with a deliberate directory.
+
 It refuses to do two things, both of which would be easy and both of which would be wrong:
 
 - **Score a knob it cannot evaluate.** `restoration_visibility` needs a restoration model to

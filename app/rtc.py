@@ -49,6 +49,8 @@ class LatestFrameProcessor:
             sample_every=settings.trainer_sample_every,
             enabled=settings.trainer_enabled and engine.name != "diagnostic",
             report_dir=settings.trainer_report_dir,
+            capture_dir=settings.trainer_capture_dir,
+            capture_limit=settings.trainer_capture_limit,
             active_stages=engine.active_stages(),
         )
         self.seen = 0
@@ -153,6 +155,10 @@ class LatestFrameProcessor:
                         metrics = await asyncio.to_thread(
                             self.trainer.measure, rgb, result_rgb
                         )
+                        if self.trainer.capture_dir is not None:
+                            await asyncio.to_thread(
+                                self.trainer.save_pair, rgb, result_rgb, self.seen
+                            )
                 for stage, detail in self.engine.stage_faults().items():
                     self.trainer.notice_fault(stage, detail)
 

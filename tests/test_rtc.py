@@ -504,3 +504,43 @@ def test_the_trainer_improves_a_session_that_has_a_defect_it_can_fix(monkeypatch
     assert last.measured_after < first.measured_before * .75, (
         "the improvement is too small to call this working"
     )
+
+
+def test_a_live_session_saves_frames_for_the_offline_search(tmp_path, monkeypatch):
+    """The wiring, not the writer: the frame the trainer measures is the frame saved.
+
+    Without this the offline tool can only search generated cases, which is the "guess
+    about real frames" it exists to avoid.
+    """
+    from tools.train_defaults import pairs_from_directory
+
+    monkeypatch.setattr(settings, "trainer_sample_every", 1)
+    monkeypatch.setattr(settings, "trainer_capture_limit", 2)
+    monkeypatch.setattr(settings, "trainer_capture_dir", tmp_path)
+
+    async def scenario():
+        monkeypatch.setattr(rtc, "MotionAwareStabilizer", FastStabilizer)
+        session = Session("capture", identity=object(), verified=True)
+        processor = rtc.LatestFrameProcessor(
+            PacedTrack(24, interval=.01), NoSleepEngine(), session
+        )
+        seen = 0
+        try:
+            while seen < 24:
+                try:
+                    await asyncio.wait_for(processor.recv(), timeout=2)
+                    seen += 1
+                except asyncio.TimeoutError:
+                    break
+        finally:
+            await processor.stop()
+            await asyncio.sleep(0)
+        return processor
+
+    trainer = asyncio.run(scenario()).trainer
+
+    assert trainer.captures == 2, f"expected the cap to stop it at 2, got {trainer.captures}"
+    pairs = pairs_from_directory(tmp_path)
+    assert len(pairs) == 2, f"the offline tool cannot read what was saved: {list(tmp_path.iterdir())}"
+    # A pair of the same frame, not two of the same image: the search scores the difference.
+    assert not np.array_equal(pairs[0].original, pairs[0].swapped)

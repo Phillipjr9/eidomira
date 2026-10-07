@@ -16,5 +16,6 @@ reports/*
 # ...except the sample in the README, so the format is documented rather than described.
 !reports/example-session-report.md
 data/tuned_defaults.json
+captures/
 *.log
 .DS_Store

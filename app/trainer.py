@@ -20,6 +20,11 @@ inventing numbers. What it does instead is real:
 * **Report.** At the end of a session it writes a plain-language summary: what was wrong,
   what it changed, what it tried and reverted, and what a person should fix in the code
   because no setting can.
+* **Capture,** when asked. `tools/train_defaults.py` can only replay frames it has, and the
+  studio only ever produced a `.webm` recording -- so nothing was feeding it. With
+  `STUDIO_TRAINER_CAPTURE_LIMIT` set, a measured frame is written out as the
+  `*_original.png` / `*_swapped.png` pair the offline tool reads, which is the difference
+  between a search over generated cases and a search over this deployment's own failures.
 
 The one thing it may not do is move a setting nobody measured. `restoration_visibility` is
 skipped when no restoration model is installed, and the offline trainer refuses to score a
@@ -130,6 +135,7 @@ class Trainer:
     def __init__(self, session_id: str = "session", *, sample_every: int = 30,
                  measure_width: int = MEASURE_WIDTH, enabled: bool = True,
                  report_dir: Path | str | None = "reports",
+                 capture_dir: Path | str | None = None, capture_limit: int = 0,
                  starting_values: dict | None = None,
                  active_stages: set[str] | None = None):
         self.session_id = str(session_id)
@@ -137,6 +143,11 @@ class Trainer:
         self.sample_every = max(1, int(sample_every))
         self.measure_width = max(64, int(measure_width))
         self.report_dir = Path(report_dir) if report_dir else None
+        #: Where to save measured frames for the offline search, and how many per session.
+        #: Off unless asked for: writing two PNGs costs more than measuring the frame.
+        self.capture_dir = Path(capture_dir) if capture_dir and int(capture_limit) > 0 else None
+        self.capture_limit = max(0, int(capture_limit))
+        self.captures = 0
         #: Stages the engine is really running. Turning down a stage that is not loaded is
         #: a change that costs nothing and proves nothing, and it would score as an
         #: improvement on the next sample for no reason at all.
@@ -238,6 +249,35 @@ class Trainer:
 
         if frame_ms is not None and target_ms:
             self._detect_latency(frame_ms, target_ms, frame)
+
+    def save_pair(self, original_rgb, swapped_rgb, frame: int) -> Path | None:
+        """Write one measured frame as the pair `tools/train_defaults.py` reads.
+
+        Filenames are the tool's contract, not a cosmetic choice: it pairs
+        `X_original.*` with `X_swapped.*`, so anything else here would look like a
+        directory of unusable images and the search would silently find nothing.
+
+        Costly -- two PNG encodes, more than the measurement itself -- which is why it is
+        off by default and capped, and why it runs off the event loop beside the metrics.
+        """
+        if not self.enabled or self.capture_dir is None or self.captures >= self.capture_limit:
+            return None
+        import cv2
+
+        self.capture_dir.mkdir(parents=True, exist_ok=True)
+        stem = f"{self.session_id}-{int(frame):06d}"
+        original = self.capture_dir / f"{stem}_original.png"
+        swapped = self.capture_dir / f"{stem}_swapped.png"
+        try:
+            # cv2 writes BGR; the metrics work in RGB.
+            if not cv2.imwrite(str(original), original_rgb[:, :, ::-1]):
+                return None
+            if not cv2.imwrite(str(swapped), swapped_rgb[:, :, ::-1]):
+                return None
+        except Exception:
+            return None
+        self.captures += 1
+        return swapped
 
     def notice_fault(self, stage: str, detail: str) -> None:
         """A stage reported a fault. Record it and take the stage out of the loop."""
@@ -398,6 +438,7 @@ class Trainer:
         return {
             "monitoring": self.enabled,
             "samples": self.samples,
+            "captures": self.captures,
             "mistakes": sum(self.counts.values()),
             "kinds": len(self.mistakes),
             "counts": dict(self.counts),
@@ -426,6 +467,11 @@ class Trainer:
             f"Watched {self.frames} frames over {duration} and measured "
             f"{self.samples} of them.",
         ]
+        if self.captures:
+            lines.append(
+                f"Saved {self.captures} measured frames to `{self.capture_dir}` for "
+                "`python -m tools.train_defaults --pairs`."
+            )
         if self.skipped_for_budget:
             lines.append(
                 f"Skipped {self.skipped_for_budget} measurements because the frame was "

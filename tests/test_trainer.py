@@ -564,3 +564,62 @@ def test_applying_tuned_values_ignores_a_non_number():
     settings = Settings()
     assert apply_to_settings(settings, {"parser_feather": "wide"}) == {}
     assert settings.parser_feather == .035
+
+
+# ─────────────────── feeding the offline search from a live session ───────────────────
+
+def test_a_saved_frame_is_a_pair_the_offline_search_can_read(tmp_path):
+    """The loop the feature depends on: a live session's own failure becomes data.
+
+    The filename is the contract, not a detail — `pairs_from_directory` pairs
+    `X_original.*` with `X_swapped.*`, so a near-miss here looks like a directory of
+    unusable images and the search reports "nothing found", which reads like success.
+    Asserted as a round trip through the reader rather than as a file existing.
+    """
+    from tools.train_defaults import pairs_from_directory
+
+    trainer = Trainer(sample_every=1, capture_dir=tmp_path, capture_limit=4)
+    original = np.full((60, 80, 3), 100, np.uint8)
+    swapped = np.full((60, 80, 3), 160, np.uint8)
+
+    written = trainer.save_pair(original, swapped, 7)
+
+    assert written is not None and written.exists()
+    pairs = pairs_from_directory(tmp_path)
+    assert len(pairs) == 1, f"the reader did not pair the files: {list(tmp_path.iterdir())}"
+    assert np.array_equal(pairs[0].original, original), "channels came back swapped"
+    assert np.array_equal(pairs[0].swapped, swapped)
+    assert trainer.captures == 1
+    assert trainer.state()["captures"] == 1
+
+
+def test_saving_stops_at_the_cap(tmp_path):
+    """A session that watches thousands of frames must not fill the disk."""
+    trainer = Trainer(sample_every=1, capture_dir=tmp_path, capture_limit=2)
+
+    for frame in range(5):
+        trainer.save_pair(np.full((8, 8, 3), 10, np.uint8), np.full((8, 8, 3), 20, np.uint8), frame)
+
+    assert trainer.captures == 2
+    assert len(list(tmp_path.glob("*_original.png"))) == 2
+
+
+def test_nothing_is_saved_unless_it_was_asked_for(tmp_path):
+    """Off by default: two PNG encodes cost more than measuring the frame."""
+    trainer = Trainer(sample_every=1, capture_dir=tmp_path, capture_limit=0)
+
+    assert trainer.capture_dir is None
+    assert trainer.save_pair(np.zeros((8, 8, 3), np.uint8), np.zeros((8, 8, 3), np.uint8), 1) is None
+    assert list(tmp_path.iterdir()) == []
+
+    disabled = Trainer(sample_every=1, enabled=False, capture_dir=tmp_path, capture_limit=4)
+    assert disabled.save_pair(np.zeros((8, 8, 3), np.uint8), np.zeros((8, 8, 3), np.uint8), 1) is None
+
+
+def test_the_report_says_what_was_saved_and_where(tmp_path):
+    trainer = Trainer(sample_every=1, capture_dir=tmp_path, capture_limit=4)
+    trainer.save_pair(np.full((8, 8, 3), 10, np.uint8), np.full((8, 8, 3), 20, np.uint8), 1)
+
+    report = trainer.report()
+    assert "Saved 1 measured frames" in report
+    assert "--pairs" in report, "the report should say what to do with them"
