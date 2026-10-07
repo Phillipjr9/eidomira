@@ -4,6 +4,12 @@ services:
     ports: ["8000:8000"]
     environment:
       STUDIO_BACKEND: inswapper
+      # Trust X-Forwarded-For only from your proxy, and only if you run one in front of
+      # this service. Left at uvicorn's loopback default behind a proxy, every caller
+      # shares one rate-limit bucket — the whole deployment gets 120 requests/minute and
+      # one client can lock out sign-in for everyone. The app logs a warning at startup
+      # when PUBLIC_URL is https and only loopback is trusted.
+      # FORWARDED_ALLOW_IPS: "172.16.0.0/12"
       STUDIO_MODEL_PATH: /models/inswapper_128.onnx
       STUDIO_PARSER_MODEL_PATH: /models/face_parser.onnx
     volumes:

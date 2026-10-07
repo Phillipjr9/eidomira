@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     require_auth: bool = False
     rate_limit_per_minute: int = 120
     enrollment_limit_per_hour: int = 20
+    # Failed sign-ins allowed per account per hour, on top of the per-IP limit.
+    # This is the limit that still works when the IP key is degraded, e.g. behind
+    # a proxy uvicorn does not trust, where every caller shares one bucket.
+    login_limit_per_hour: int = 30
     public_url: str = "http://127.0.0.1:8000"
     email_token_ttl: int = 86400
     smtp_host: str = ""

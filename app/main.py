@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, time
+import asyncio, time, os, hashlib, logging
 from pathlib import Path
 import cv2
 import numpy as np
@@ -19,7 +19,7 @@ from app.database import database
 from app.mailer import send_verification
 from app.billing import PLAN, TOOLS, create_trial, account as billing_account, quote as billing_quote
 from app.paystack import checkout as paystack_checkout, verify_transaction as paystack_verify, valid_signature as paystack_valid_signature, process_webhook as paystack_process_webhook
-from app.limits import rate_limit_middleware
+from app.limits import limiter, rate_limit_middleware
 from app.observability import metrics_middleware, ACTIVE_SESSIONS, ACTIVE_PEERS
 from app.headers import security_headers_middleware
 import json, time, uuid
@@ -83,6 +83,27 @@ class QuoteRequest(BaseModel):
 
 class CheckoutRequest(BaseModel):
     product: str = "live-pro-monthly"
+
+
+@app.on_event("startup")
+def report_proxy_trust():
+    """Make a shared-rate-limit-bucket misconfiguration visible at boot.
+
+    The limiter keys on the peer address as seen directly. uvicorn only rewrites that from
+    X-Forwarded-For for proxies listed in FORWARDED_ALLOW_IPS (loopback by default), so a
+    deployment behind an untrusted proxy collapses everyone into one bucket: the whole
+    platform gets 120 requests a minute, and one caller can lock out sign-in for the rest.
+    Silent by nature, so say it out loud instead.
+    """
+    allowed = os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1,::1")
+    entries = [part.strip() for part in allowed.split(",") if part.strip()]
+    loopback_only = all(part in {"127.0.0.1", "::1", "localhost"} for part in entries)
+    if settings.public_url.startswith("https://") and loopback_only:
+        logging.getLogger("uvicorn.error").warning(
+            "FORWARDED_ALLOW_IPS=%s trusts loopback only while this service is public "
+            "(PUBLIC_URL=%s). If a reverse proxy sits in front, every caller shares one "
+            "rate-limit bucket and cannot be told apart. Set FORWARDED_ALLOW_IPS to the "
+            "proxy address or network.", allowed, settings.public_url)
 
 
 @app.on_event("shutdown")
@@ -152,8 +173,20 @@ def auth_register(request: AuthRequest, background_tasks: BackgroundTasks):
 
 @app.post("/api/auth/login")
 def auth_login(request: AuthRequest):
+    # Per-account throttle on failures only. The per-IP middleware limit is the first
+    # line, but its key is the peer address as seen directly, so behind a proxy uvicorn
+    # does not trust every caller shares one bucket — this limit still protects an
+    # individual account in that case. Keyed on a digest so no address is held in memory.
+    account_key = f"login:{hashlib.sha256(request.email.strip().lower().encode()).hexdigest()[:16]}"
+    allowed, retry = limiter.allow(account_key, settings.login_limit_per_hour, 3600, record=False)
+    if not allowed:
+        return JSONResponse({"error":"Too many sign-in attempts for this account. Try again later."},
+                            status_code=429, headers={"Retry-After":str(retry)})
     user=authenticate(request.email,request.password)
-    if not user:return JSONResponse({"error":"Invalid email or password"},status_code=401)
+    if not user:
+        # Count the failure, so a correct sign-in never consumes this account's budget.
+        limiter.allow(account_key, settings.login_limit_per_hour, 3600)
+        return JSONResponse({"error":"Invalid email or password"},status_code=401)
     token=access_token(user)
     response=JSONResponse({"access_token":token,"token_type":"bearer","expires_in":settings.access_token_ttl,"user":user})
     response.set_cookie("eidomira_access_token",token,max_age=settings.access_token_ttl,httponly=True,secure=settings.public_url.startswith("https://"),samesite="lax",path="/")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
+import sqlite3
 import secrets
 import hashlib
 import jwt
@@ -16,6 +17,25 @@ from app.database import database
 EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 hasher = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 
+# A throwaway hash of a random secret, used to spend the same argon2 work when an
+# address has no account to check against. Without it, authenticate() returned before
+# hashing anything and the response time alone revealed whether an email was
+# registered — measured at 96 ms for a known address versus 2 ms for an unknown one
+# over HTTP, both answering an identical 401.
+_ENUMERATION_DECOY = hasher.hash(secrets.token_urlsafe(32))
+
+
+def _spend_verification(password: str) -> None:
+    """Do the work of a failed password check when there is no stored hash to use.
+
+    Deliberately discards the result: the only point is that the caller cannot be
+    told apart from one that really did check a password.
+    """
+    try:
+        hasher.verify(_ENUMERATION_DECOY, password)
+    except VerifyMismatchError:
+        pass
+
 
 def register(email: str, password: str):
     email = email.strip().lower()
@@ -25,8 +45,10 @@ def register(email: str, password: str):
     try:
         database.execute("INSERT INTO users(id,email,password_hash,created_at) VALUES(?,?,?,?)",
                          (user_id, email, hasher.hash(password), int(time.time())))
-    except Exception as exc:
-        if "UNIQUE" in str(exc): raise ValueError("An account already uses that email") from exc
+    except sqlite3.IntegrityError as exc:
+        # Constraint name, not a bare substring: a NOT NULL or foreign-key failure must
+        # not be reported to the caller as "that email is taken".
+        if "users.email" in str(exc): raise ValueError("An account already uses that email") from exc
         raise
     return {"id": user_id, "email": email, "email_verified": False}
 
@@ -52,7 +74,12 @@ def verify_email_token(raw: str):
 
 def authenticate(email: str, password: str):
     user = database.one("SELECT * FROM users WHERE email=? AND disabled=0", (email.strip().lower(),))
-    if not user: return None
+    if not user:
+        # Unregistered address, or a disabled account: both are filtered out by the query
+        # above, and both must still cost one verification so the timing does not
+        # distinguish them from a wrong password. See _ENUMERATION_DECOY.
+        _spend_verification(password)
+        return None
     try: hasher.verify(user["password_hash"], password)
     except VerifyMismatchError: return None
     if hasher.check_needs_rehash(user["password_hash"]):

@@ -193,3 +193,32 @@ Eidomira includes verified-email registration, Argon2id passwords, signed access
 Set `STUDIO_PUBLIC_URL` and SMTP values from `.env.example`. Without SMTP, development verification URLs print to server logs; this must not be used in production.
 
 Endpoints: `POST /api/auth/register`, `/api/auth/login`, `/api/auth/verify-email`, `/api/auth/resend-verification`; `GET /api/plans`, `/api/billing/account`; `POST /api/billing/quote`.
+
+### Sign-in behaviour worth knowing
+
+**Unknown addresses cost the same as wrong passwords.** `authenticate()` used to return
+before hashing anything when an address had no account, so the response time alone
+revealed whether a given email was registered — 96 ms against 2 ms over HTTP, both
+answering an identical 401. It now spends an equivalent Argon2 verification against a
+throwaway hash. Disabled accounts take the same path, so they cannot be told apart from
+unregistered ones either.
+
+**Failures are throttled per account, not just per address.** The middleware limit keys on
+the peer address as seen directly, so behind a proxy uvicorn does not trust every caller
+shares one bucket. `login_limit_per_hour` (default 30) is a second limit keyed on a digest
+of the email, which keeps working in that case and never holds an address in memory. Only
+failures count against it, so signing in normally never locks anyone out.
+
+The cost of that design, recorded rather than discovered later: once an account's failure
+budget is spent, **even the correct password is refused until the window passes**, and
+someone who knows an address can deliberately trigger that lockout. The budget is checked
+before the password because that is the only ordering that slows guessing down. Raise
+`login_limit_per_hour` to trade protection for availability, or lower it to do the reverse.
+
+**A proxy must be declared, or rate limiting degrades silently.** uvicorn only rewrites the
+peer address from `X-Forwarded-For` for proxies listed in `FORWARDED_ALLOW_IPS`
+(loopback by default). Left at the default behind a reverse proxy, every caller shares one
+bucket: the whole platform gets 120 requests a minute and one client can lock out sign-in
+for everyone. Set it to the proxy address or network — `docker-compose.yml` carries a
+commented example — and the app logs a warning at startup when `PUBLIC_URL` is `https://`
+while only loopback is trusted.
