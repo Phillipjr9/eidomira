@@ -690,6 +690,37 @@ $('enrollBtn').onclick=async()=>{
 };
 function status(t,error=false){$('status').textContent=t;$('status').style.color=error?'#fda4af':'#86efac'}
 
+let syntheticAnimId=null;
+function createSyntheticFeed(){
+  const canvas=document.createElement('canvas');
+  canvas.width=640;canvas.height=480;
+  const ctx=canvas.getContext('2d');
+  let angle=0;
+  function draw(){
+    angle+=0.04;
+    ctx.fillStyle='#0f111a';ctx.fillRect(0,0,640,480);
+    const cx=320+Math.sin(angle)*35;
+    const cy=240+Math.cos(angle*1.3)*15;
+    ctx.fillStyle='#e4be9e';
+    ctx.beginPath();ctx.ellipse(cx,cy,95,125,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#1c1c24';
+    const blink=Math.sin(angle*2.5)>0.94;
+    if(blink){
+      ctx.fillRect(cx-45,cy-20,26,4);
+      ctx.fillRect(cx+19,cy-20,26,4);
+    }else{
+      ctx.beginPath();ctx.ellipse(cx-32,cy-20,11,7,0,0,Math.PI*2);
+      ctx.ellipse(cx+32,cy-20,11,7,0,0,Math.PI*2);ctx.fill();
+    }
+    ctx.beginPath();ctx.arc(cx,cy+45,24,0.2,Math.PI-0.2);ctx.lineWidth=4;ctx.strokeStyle='#c45a5a';ctx.stroke();
+    ctx.fillStyle='#86efac';ctx.font='14px monospace';
+    ctx.fillText('● TEST VIDEO FEED (CAMERA BYPASS)',18,30);
+    syntheticAnimId=requestAnimationFrame(draw);
+  }
+  draw();
+  return canvas.captureStream?canvas.captureStream(30):null;
+}
+
 $('cameraBtn').onclick=async()=>{
   if(media){stopCamera();return}
   try{
@@ -709,9 +740,29 @@ $('cameraBtn').onclick=async()=>{
     $('video').srcObject=media;await $('video').play();
     $('cameraEmpty').style.display='none';$('cameraBadge').textContent='LIVE';$('cameraBadge').className='badge live';
     $('cameraBtn').textContent='Stop camera';$('flipBtn').disabled=false;$('p2').classList.add('active');$('goBtn').disabled=!session;
-  }catch(e){status('Camera blocked: '+e.message,true)}
+    $('syntheticCamBtn').hidden=true;
+  }catch(e){
+    status('Camera blocked: '+e.message,true);
+    $('syntheticCamBtn').hidden=false;
+    $('syntheticCamBtn').scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
 };
-function stopCamera(){stopTransform();media?.getTracks().forEach(t=>t.stop());media=null;$('video').srcObject=null;$('cameraEmpty').style.display='grid';$('cameraBadge').textContent='OFFLINE';$('cameraBadge').className='badge off';$('cameraBtn').innerHTML='Start camera <b>→</b>';$('goBtn').disabled=true;$('flipBtn').disabled=true}
+$('syntheticCamBtn').onclick=async()=>{
+  if(media){stopCamera();return}
+  try{
+    media=createSyntheticFeed();
+    if(!media)throw Error('Browser does not support canvas video stream');
+    $('video').srcObject=media;await $('video').play();
+    $('cameraEmpty').style.display='none';$('cameraBadge').textContent='TEST FEED';$('cameraBadge').className='badge live';
+    $('cameraBtn').textContent='Stop camera';$('flipBtn').disabled=true;$('p2').classList.add('active');$('goBtn').disabled=!session;
+    $('syntheticCamBtn').hidden=true;
+    status('Test video feed running. Click Start transformation.');
+  }catch(e){status('Test stream error: '+e.message,true)}
+};
+function stopCamera(){
+  if(syntheticAnimId){cancelAnimationFrame(syntheticAnimId);syntheticAnimId=null}
+  stopTransform();media?.getTracks().forEach(t=>t.stop());media=null;$('video').srcObject=null;$('cameraEmpty').style.display='grid';$('cameraBadge').textContent='OFFLINE';$('cameraBadge').className='badge off';$('cameraBtn').innerHTML='Start camera <b>→</b>';$('goBtn').disabled=true;$('flipBtn').disabled=true
+}
 $('flipBtn').onclick=async()=>{const wasRunning=running;if(wasRunning)stopTransform();media?.getTracks().forEach(t=>t.stop());media=null;cameraFacing=cameraFacing==='user'?'environment':'user';await $('cameraBtn').click();status(cameraFacing==='user'?'Front camera selected.':'Rear camera selected.');};
 
 $('goBtn').onclick=()=>running?stopTransform():startTransform();
