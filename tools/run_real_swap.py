@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+PARSER_URL = "https://huggingface.co/facefusion/models-3.3.0/resolve/main/face_parser.onnx"
+RESTORER_URL = "https://huggingface.co/facefusion/models-3.3.0/resolve/main/gfpgan_1.4.onnx"
 MODEL_URL = "https://huggingface.co/ezioruan/inswapper_128.onnx/resolve/main/inswapper_128.onnx"
 DEFAULT_MODEL = ROOT / "models" / "inswapper_128.onnx"
 
@@ -42,14 +44,14 @@ def preload_cuda():
                 pass
 
 
-def download_model(destination: Path):
+def download_file(url: str, destination: Path, label: str):
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists() and destination.stat().st_size > 100_000_000:
-        print(f"Model already downloaded: {destination} ({destination.stat().st_size / 1e6:.1f} MB)")
+    if destination.exists() and destination.stat().st_size > 1_000_000:
+        print(f"{label} already present: {destination} ({destination.stat().st_size / 1e6:.1f} MB)")
         return
-    print(f"Downloading real neural swap weights from {MODEL_URL}…")
+    print(f"Downloading {label} from {url}…")
     partial = destination.with_suffix(".part")
-    req = urllib.request.Request(MODEL_URL, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
     with urllib.request.urlopen(req, timeout=300) as response, partial.open("wb") as handle:
         total = int(response.headers.get("Content-Length", 0))
         downloaded = 0
@@ -62,7 +64,7 @@ def download_model(destination: Path):
             downloaded += len(chunk)
             if total > 0:
                 pct = int(downloaded / total * 100)
-                if pct >= last_pct + 10:
+                if pct >= last_pct + 20:
                     print(f"  {pct}% ({downloaded / 1e6:.1f} / {total / 1e6:.1f} MB)…")
                     last_pct = pct
     partial.replace(destination)
@@ -75,6 +77,7 @@ def main():
     parser.add_argument("--source", type=Path, default=ROOT / "static" / "persona-01.jpg")
     parser.add_argument("--target", type=Path, default=ROOT / "static" / "persona-02.jpg")
     parser.add_argument("--output", type=Path, default=ROOT / "swapped_result.jpg")
+    parser.add_argument("--enhance", action="store_true", default=True, help="enable GFPGAN detail restoration & parser mask")
     options = parser.parse_args()
 
     preload_cuda()
@@ -88,7 +91,19 @@ def main():
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "requests", "tqdm", "scikit-image", "scipy", "opencv-python-headless"], check=False)
 
     if not options.model.exists() or options.model.stat().st_size < 100_000_000:
-        download_model(options.model)
+        download_file(MODEL_URL, options.model, "InSwapper 128 Model")
+
+    # Download restoration and parsing models for Swapface-level quality
+    parser_path = ROOT / "models" / "face_parser.onnx"
+    restorer_path = ROOT / "models" / "gfpgan_1.4.onnx"
+    try:
+        download_file(PARSER_URL, parser_path, "Face Parser (BiSeNet)")
+    except Exception as e:
+        print(f"Note: parser download skipped ({e})")
+    try:
+        download_file(RESTORER_URL, restorer_path, "Face Restorer (GFPGAN v1.4)")
+    except Exception as e:
+        print(f"Note: restorer download skipped ({e})")
 
     import cv2
     from app.engines.inswapper import InSwapperEngine
