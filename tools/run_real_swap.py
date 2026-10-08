@@ -74,8 +74,8 @@ def download_file(url: str, destination: Path, label: str):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
-    parser.add_argument("--source", type=Path, default=ROOT / "static" / "real_person_a.jpg")
-    parser.add_argument("--target", type=Path, default=ROOT / "static" / "real_person_b.jpg")
+    parser.add_argument("--source", type=Path, default=ROOT / "static" / "human-01.jpg")
+    parser.add_argument("--target", type=Path, default=ROOT / "static" / "human-02.jpg")
     parser.add_argument("--output", type=Path, default=ROOT / "swapped_result.jpg")
     parser.add_argument("--enhance", action="store_true", default=True, help="enable GFPGAN detail restoration & parser mask")
     options = parser.parse_args()
@@ -149,34 +149,15 @@ def main():
                 return path, rgb, best
         return None, None, None
 
-    # Download real human photographic portraits if not already present
-    real_a = ROOT / "static" / "real_person_a.jpg"
-    real_b = ROOT / "static" / "real_person_b.jpg"
-    if not real_a.exists():
-        try:
-            print("Downloading real photographic human portrait A…")
-            download_file("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Elon_Musk_Royal_Society_%28crop2%29.jpg/800px-Elon_Musk_Royal_Society_%28crop2%29.jpg", real_a, "Human Portrait A")
-        except Exception as e:
-            print(f"Portrait A download skipped: {e}")
-    if not real_b.exists():
-        try:
-            print("Downloading real photographic human portrait B…")
-            download_file("https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/President_Barack_Obama.jpg/800px-President_Barack_Obama.jpg", real_b, "Human Portrait B")
-        except Exception as e:
-            print(f"Portrait B download skipped: {e}")
+    h1 = ROOT / "static" / "human-01.jpg"
+    h2 = ROOT / "static" / "human-02.jpg"
 
-    all_portraits = [
-        real_a,
-        real_b,
-        options.source,
-        ROOT / "static" / "persona-02.jpg",
-        ROOT / "static" / "persona-03.jpg",
-    ]
+    all_portraits = [h1, h2]
 
     print("Detecting and selecting source identity…")
     src_path, src_rgb, best_src = find_face_image(all_portraits)
     if best_src is None:
-        print("Error: could not find face in any sample image.")
+        print("Error: could not find face in sample images.")
         return 1
     print(f"Source face: {src_path.name} (bbox={[int(x) for x in best_src.bbox]})")
 
