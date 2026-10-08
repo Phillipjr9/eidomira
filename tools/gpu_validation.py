@@ -87,9 +87,44 @@ def describe_host() -> bool:
     accelerated = summary != "cpu"
     report("accelerated", "yes" if accelerated else "NO — everything below is CPU timing")
     if not accelerated:
-        print("\n  note: no GPU provider will be used. On Kaggle, check Settings ->")
-        print("  Accelerator -> GPU, and make sure onnxruntime-gpu is the one installed.")
+        if gpu_is_present():
+            explain_the_fallback()
+        else:
+            print("\n  note: no GPU provider will be used, and no GPU is attached. On Kaggle,")
+            print("  check Settings -> Accelerator -> GPU, then make sure onnxruntime-gpu is")
+            print("  the version installed (pip uninstall -y onnxruntime onnxruntime-gpu first).")
     return accelerated
+
+
+def explain_the_fallback() -> None:
+    """A GPU is present and ONNX Runtime still will not use it. Say why.
+
+    The usual cause is a library the provider cannot load, and ONNX Runtime reports that on
+    the exception it raises when asked for a CUDA session — but only if something asks. The
+    generic 'no GPU provider' line sends people looking in the wrong place, and this is the
+    most common way a Kaggle run appears to work while measuring a CPU.
+    """
+    import onnx
+    import onnxruntime as ort
+    from onnx import TensorProto, helper
+
+    node = helper.make_node("Identity", ["x"], ["y"])
+    graph = helper.make_graph([node], "probe",
+                              [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])],
+                              [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    try:
+        ort.InferenceSession(model.SerializeToString(), providers=["CUDAExecutionProvider"])
+    except Exception as error:
+        lines = [line.strip() for line in str(error).splitlines() if line.strip()]
+        report("cuda refusal", (lines[0] if lines else type(error).__name__)[:120])
+        print("\n  ONNX Runtime will not open the CUDA provider. The two usual reasons:")
+        print("    a CPU-only onnxruntime installed over the GPU one — run:")
+        print("      !pip uninstall -y onnxruntime onnxruntime-gpu && pip install -q onnxruntime-gpu")
+        print("    libraries the provider cannot load — run:")
+        print("      !pip install -q nvidia-cublas-cu12 nvidia-cudnn-cu12")
+    else:
+        report("cuda refusal", "none — a CUDA session opens, so the provider is usable")
 
 
 def describe_gpu() -> None:
@@ -104,6 +139,15 @@ def describe_gpu() -> None:
         return
     line = completed.stdout.strip().splitlines()
     report("nvidia-smi", line[0] if completed.returncode == 0 and line else "not present")
+    return completed.returncode == 0 and bool(line)
+
+
+def gpu_is_present() -> bool:
+    try:
+        completed = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=20)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0 and bool(completed.stdout.strip())
 
 
 def ensure_models(directory: Path) -> Path:
@@ -143,8 +187,8 @@ def measure(models: Path, source=None) -> None:
     compositor = SemanticCompositor(str(models / "face_parser.onnx"), 0.035)
     report("parser size", str(compositor.size))
     report("compositor fault", compositor.fault or "none")
-    mask, mask_worst = time_it(lambda: compositor.mask(frame, bbox))
-    report("parser mask", f"{mask:.1f} ms median, {mask_worst:.1f} ms worst")
+    mask_ms, mask_worst = time_it(lambda: compositor.mask(frame, bbox))
+    report("parser mask", f"{mask_ms:.1f} ms median, {mask_worst:.1f} ms worst")
     report("mask coverage", f"{(compositor.mask(frame, bbox) > .5).mean() * 100:.1f}% of the frame")
 
     swapped = frame.copy()
@@ -240,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
 
     describe_gpu()
     accelerated = describe_host()
+
 
     models = ensure_models(options.models)
 

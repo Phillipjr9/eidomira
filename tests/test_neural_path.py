@@ -40,7 +40,10 @@ PHOTO = ROOT / "static" / "persona-01.jpg"
 #: them, and a deployment that opts out of the neural stack should not fail this suite.
 onnx = pytest.importorskip("onnx", reason="the stand-in generator needs onnx")
 pytest.importorskip("onnxruntime", reason="the adapters need onnxruntime")
-insightface = pytest.importorskip("insightface", reason="the swap adapter needs insightface")
+# `insightface` is deliberately NOT skipped for at module level: exactly one test below needs
+# it, and skipping the whole file for that one test hid seven others that run perfectly well
+# without it — including the two that pin the stand-in environment, which is the part a bare
+# environment gets wrong. The skip lives on that one test.
 
 from tools import stand_in_models  # noqa: E402  (after the import guard, deliberately)
 
@@ -174,6 +177,7 @@ def test_the_boost_interleaves_real_inference_output(models, frame):
     by anything — including a real ONNX session. The interleave is the part that cannot be
     verified by reading: four phase-shifted passes have to land on one 256px canvas with each
     phase contributing its own samples."""
+    insightface = pytest.importorskip("insightface", reason="the swap adapter needs insightface")
     swap = insightface.model_zoo.get_model(str(models["inswapper_128.onnx"]),
                                           providers=["CPUExecutionProvider"])
     assert swap.input_size == (stand_in_models.ALIGN, stand_in_models.ALIGN)
@@ -208,7 +212,7 @@ def test_the_documented_environment_actually_selects_the_neural_engine():
     from app.config import settings
     from app.engines.factory import INSWAPPER_BACKEND, create_engine
 
-    assert stand_in_models.ENVIRONMENT["STUDIO_BACKEND"] == INSWAPPER_BACKEND
+    assert stand_in_models.environment()["STUDIO_BACKEND"] == INSWAPPER_BACKEND
 
     original_backend, original_path = settings.backend, settings.model_path
     settings.backend = INSWAPPER_BACKEND
@@ -223,7 +227,37 @@ def test_the_documented_environment_actually_selects_the_neural_engine():
 def test_the_documented_environment_points_at_the_stand_ins():
     """The tool prints these; pointing a host at the stand-in directory should be a copy and
     paste, not a guess from reading config.py."""
-    for key, value in stand_in_models.ENVIRONMENT.items():
+    for key, value in stand_in_models.environment().items():
         assert key.startswith("STUDIO_"), key
         if key.endswith("_PATH"):
             assert Path(value).name in stand_in_models.BUILDERS, value
+
+
+def test_generating_the_stand_ins_does_not_need_the_application_config():
+    """The stand-in generator must import in a bare environment.
+
+    `tools/stand_in_models.py` used to import `INSWAPPER_BACKEND` from `app.engines.factory` at
+    module scope, to avoid retyping a constant that fails silently when misspelled. That import
+    pulled in `app.config` and therefore pydantic-settings, so generating stand-ins — a job
+    that needs nothing but numpy and onnx — died on `ModuleNotFoundError: pydantic_settings`
+    in a Kaggle notebook before writing a single file. The constant is now imported inside
+    `environment()`, where it is asked for, and this test is what keeps it there.
+
+    Run in a subprocess because the check is about what an import drags in, and this process
+    has already imported the application.
+    """
+    import subprocess
+    import sys
+
+    program = (
+        "import sys\n"
+        "import tools.stand_in_models as m\n"
+        "heavy = [n for n in ('app.config', 'pydantic_settings', 'pydantic') if n in sys.modules]\n"
+        "assert not heavy, 'importing the stand-in generator pulled in: ' + ', '.join(heavy)\n"
+        "print(m.environment()['STUDIO_BACKEND'])\n"
+    )
+    result = subprocess.run([sys.executable, "-c", program], cwd=ROOT,
+                            capture_output=True, text=True, timeout=120)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "inswapper", result.stdout

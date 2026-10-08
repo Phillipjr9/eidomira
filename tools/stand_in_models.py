@@ -39,8 +39,6 @@ import numpy as np
 import onnx
 from onnx import TensorProto, helper, numpy_helper
 
-from app.engines.factory import INSWAPPER_BACKEND
-
 #: The 19-class CelebAMask-HQ layout the compositor's class sets are written against.
 SKIN_CLASS = 1
 LIP_CLASSES = (12, 13)
@@ -208,15 +206,24 @@ BUILDERS = {
     "gfpgan_1.4.onnx": restorer,
 }
 
-#: With `models/standin` as the swap directory these env vars make the app load them. The
-#: backend name is imported rather than written out: `insightface` instead of `inswapper` is
-#: the kind of mistake that does not raise, it silently runs the diagnostic engine.
-ENVIRONMENT = {
-    "STUDIO_MODEL_PATH": "models/standin/inswapper_128.onnx",
-    "STUDIO_PARSER_MODEL_PATH": "models/standin/face_parser.onnx",
-    "STUDIO_RESTORATION_MODEL_PATH": "models/standin/gfpgan_1.4.onnx",
-    "STUDIO_BACKEND": INSWAPPER_BACKEND,
-}
+def environment() -> dict[str, str]:
+    """With `models/standin` as the swap directory, these env vars make the app load them.
+
+    The backend name is imported rather than written out: `insightface` instead of `inswapper`
+    is the kind of mistake that does not raise, it silently runs the diagnostic engine. The
+    import happens *here*, when the dict is asked for — not at module import. Read at import
+    time it pulled in `app.config` and therefore pydantic-settings, so generating stand-ins, a
+    job that needs nothing but numpy and onnx, could not run in a bare environment: on Kaggle
+    it died on `ModuleNotFoundError: pydantic_settings` before writing a single file.
+    """
+    from app.engines.factory import INSWAPPER_BACKEND
+
+    return {
+        "STUDIO_MODEL_PATH": "models/standin/inswapper_128.onnx",
+        "STUDIO_PARSER_MODEL_PATH": "models/standin/face_parser.onnx",
+        "STUDIO_RESTORATION_MODEL_PATH": "models/standin/gfpgan_1.4.onnx",
+        "STUDIO_BACKEND": INSWAPPER_BACKEND,
+    }
 
 
 def build(directory: Path) -> dict[str, Path]:
@@ -236,7 +243,7 @@ def main() -> int:
         print(f"wrote {path}  ({path.stat().st_size / 1024:.1f} KB)")
     print("\nthese are stand-ins: correct shapes, no trained weights, no quality claim.")
     print("to run the stack against them:")
-    for key, value in ENVIRONMENT.items():
+    for key, value in environment().items():
         print(f"  {key}={value}")
     return 0
 

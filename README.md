@@ -210,11 +210,15 @@ python -m tools.udp_probe send --host <the host> --port 34789   # from anywhere 
 ```
 
 No card at all? `tools/gpu_validation.py` measures the neural path on a free Kaggle or Colab
-GPU in one cell — provider, per-stage timings, and an extrapolated frame budget — so the host
-question is answered before anything is bought:
+GPU — provider, per-stage timings, and an extrapolated frame budget — so the host question is
+answered before anything is bought. [`docs/kaggle-gpu.md`](docs/kaggle-gpu.md) has the
+step-by-step and the four ways it goes wrong; `notebooks/kaggle-validation.ipynb` is
+ready to import:
 
 ```python
-!git clone https://github.com/<owner>/eidomira.git && cd eidomira
+!git clone -q -b arena/178efbef-eidomira https://github.com/Phillipjr9/eidomira.git
+%cd eidomira
+!pip uninstall -y -q onnxruntime onnxruntime-gpu
 !pip install -q onnxruntime-gpu onnx insightface
 !python tools/gpu_validation.py
 ```

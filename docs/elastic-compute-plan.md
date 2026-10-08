@@ -244,8 +244,9 @@ persistent process. What they *can* do is answer the question that must be answe
 paying for anything, on a real GPU:
 
 ```python
-!git clone https://github.com/<owner>/eidomira.git
+!git clone -q -b arena/178efbef-eidomira https://github.com/Phillipjr9/eidomira.git
 %cd eidomira
+!pip uninstall -y -q onnxruntime onnxruntime-gpu
 !pip install -q onnxruntime-gpu onnx insightface
 !python tools/gpu_validation.py
 ```
