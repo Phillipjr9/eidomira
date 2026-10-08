@@ -142,6 +142,10 @@ def main():
 
     out_bgr = cv2.cvtColor(result.image, cv2.COLOR_RGB2BGR)
     cv2.imwrite(str(options.output), out_bgr)
+    # Also save to current directory and parent directory so IPython display never fails
+    cv2.imwrite("swapped_result.jpg", out_bgr)
+    cv2.imwrite("/kaggle/working/swapped_result.jpg", out_bgr)
+    cv2.imwrite("/kaggle/working/eidomira/swapped_result.jpg", out_bgr)
 
     print("\n" + "=" * 50)
     print("  REAL NEURAL FACE SWAP COMPLETED SUCCESSFULLY")
