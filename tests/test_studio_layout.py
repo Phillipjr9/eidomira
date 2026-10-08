@@ -159,6 +159,33 @@ def test_preferences_say_they_are_this_browser_only():
     assert "stored in this browser only" in view("Settings").lower()
 
 
+def test_only_a_session_failure_can_end_a_session():
+    """Two ways this went wrong and must not again: any transient error inside the account
+    load used to clear the token (a rendering failure looked like a logout), and any 401 used
+    to end the session (a wrong current password would have signed the user out of the page
+    they were using to change it)."""
+    # The session check is its own call, and it is the only one whose failure ends a session.
+    assert "async function sessionUser()" in APP_JS
+    assert "if(!user)return;" in APP_JS, "the account load no longer depends on the session call"
+    assert "reauth:false" in APP_JS, "the password form can still end a session"
+    password_call = APP_JS[APP_JS.index("'/api/auth/password'"):]
+    assert password_call[:200].count("reauth:false") == 1
+
+    # And the catch that used to sign people out keeps the session.
+    assert "catch{setToken('');location.replace('/?signin=1')}" not in APP_JS
+    assert "Your account did not finish loading" in APP_JS
+
+
+def test_an_ended_session_says_so():
+    """Being dropped on a bare sign-in card is indistinguishable from a broken login, which
+    is how it was reported."""
+    assert "ended=1" in APP_JS
+    for script, name in ((APP_JS, "app.js"), ((STATIC / "landing.js").read_text(encoding="utf-8"),
+                                             "landing.js")):
+        assert "session ended" in script, f"{name} stays silent about it"
+    assert 'id="authMessage"' in APP_HTML, "nowhere to say it"
+
+
 def test_a_dead_session_is_noticed_instead_of_being_ignored():
     """The user's own log showed it: /api/auth/me answered 200 (the guest fallback) while
     /api/billing/account and four checkout attempts answered 401, because the browser held a
@@ -166,7 +193,8 @@ def test_a_dead_session_is_noticed_instead_of_being_ignored():
     nothing. One place now treats a 401 on a request that carried a token as the session being
     over."""
     assert "response.status===401&&accessToken" in APP_JS
-    assert "setToken('');location.replace('/?signin=1')" in APP_JS
+    assert "location.replace('/?signin=1&ended=1')" in APP_JS, "the reason is no longer sent"
+    assert "setToken('');" in APP_JS, "the dead token is no longer dropped"
 
 
 def test_the_engine_card_states_what_the_backend_is():

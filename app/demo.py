@@ -46,6 +46,21 @@ DOMAIN = "eidomira.test"
 ACCOUNTS = {"user": f"demo@{DOMAIN}", "admin": f"admin@{DOMAIN}"}
 ROLES = tuple(ACCOUNTS)
 
+#: Fixed ids, not `uuid4`, and that is the point of them.
+#:
+#: A session is signed over the account's id. Those accounts are rebuilt whenever the database
+#: is — a fresh deployment, a wiped volume, or the throwaway database a hosted preview runs on
+#: — and with a random id each rebuild, every token minted before it pointed at a row that no
+#: longer existed. The server answered 401, the page signed the visitor out, and the same thing
+#: happened again at the next rebuild. Measured here, repeatedly: the sandbox's database does
+#: not survive a restart, so this was a logout every time the preview restarted.
+#:
+#: With fixed ids the rebuilt row is the *same* account, the token still names it, and the
+#: session survives. Nothing else changes: the ids are still opaque strings in the same column,
+#: and an existing installation keeps whatever ids it already has, because this only decides
+#: what a *new* demo account is created with.
+DEMO_IDS = {"user": "demouser000000000000000000000000", "admin": "demoadmin00000000000000000000000"}
+
 
 def refusal_reason() -> str | None:
     """Why demo sign-in is off, when somebody asked for it and did not get it."""
@@ -117,6 +132,8 @@ def ensure_accounts() -> list[str]:
     """
     created: list[str] = []
     for role, email in ACCOUNTS.items():
+        # An account that already exists is left exactly as it is, id included: moving an id
+        # would mean moving every wallet, subscription and ledger row that references it.
         existing = database.one("SELECT id,role,password_hash FROM users WHERE email=?", (email,))
         if existing:
             if role == "admin" and existing["role"] != "admin":
@@ -126,7 +143,8 @@ def ensure_accounts() -> list[str]:
         # Random unless an owner configured one: nobody is ever shown the random value, so
         # password sign-in to a demo account is impossible even for someone who knows the
         # address, and the button is the only way in.
-        user = register_account(email, settings.demo_password or secrets.token_urlsafe(32))
+        user = register_account(email, settings.demo_password or secrets.token_urlsafe(32),
+                                user_id=DEMO_IDS[role])
         database.execute("UPDATE users SET email_verified_at=?, role=? WHERE id=?",
                          (int(time.time()), role, user["id"]))
         create_trial(user["id"])

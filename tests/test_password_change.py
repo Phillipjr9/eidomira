@@ -56,15 +56,46 @@ def test_an_anonymous_caller_cannot_change_anything(client):
 
 def test_the_current_password_is_required(client):
     """A token is not proof of ownership: it is a bearer credential, and one left in a browser
-    must not be enough to take the account away from its owner."""
+    must not be enough to take the account away from its owner.
+
+    Refused with 403, not 401, and the distinction is deliberate. 401 means "you are not
+    authenticated", and the studio's client signs a user out when a request that carried a
+    token is answered 401 — so a mistyped password would have logged them out of the page they
+    were using to fix it. 403 says what is true: authenticated, and this one action refused.
+    """
     email = member(client)
 
     response = change(client, current="not-the-password")
 
-    assert response.status_code == 401
+    assert response.status_code == 403
     assert "current password" in response.json()["error"]
     assert authenticate(email, PASSWORD), "the old password still works, as it should"
     assert authenticate(email, NEW_PASSWORD) is None
+
+
+def test_a_failed_change_does_not_end_the_session(client):
+    """The regression, stated the way it happened: the form is on the settings page, the
+    session must survive being told the current password is wrong."""
+    email = member(client)
+
+    assert change(client, current="not-the-password").status_code == 403
+
+    assert client.get("/api/auth/me").status_code == 200
+    assert client.get("/api/auth/me").json()["email"] == email
+
+
+def test_a_session_for_a_deleted_account_is_a_401_not_a_403(client):
+    """The other side of the same distinction: when the account really is gone, the session is
+    unusable and 401 is the honest answer — that is the case the client signs out for."""
+    import uuid as uuid_module
+
+    from app.security import access_token
+    orphan = access_token({"id": uuid_module.uuid4().hex, "email": "gone@example.com"})
+
+    response = client.post("/api/auth/password", headers={"authorization": f"Bearer {orphan}"},
+                           json={"current_password": PASSWORD, "new_password": NEW_PASSWORD})
+
+    assert response.status_code == 401
 
 
 def test_the_new_password_obeys_the_sign_up_rule(client):

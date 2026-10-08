@@ -194,10 +194,17 @@
      401, so the card it was asking for opens on arrival. Guarded on there being no session —
      somebody who is already signed in is not locked out of anything — and the flag is dropped
      from the URL so a reload does not reopen the card over them. */
-  if (new URLSearchParams(location.search).get("signin") &&
-      !localStorage.getItem("eidomira_access_token")) {
+  const landing = new URLSearchParams(location.search);
+  if (landing.get("signin") && !localStorage.getItem("eidomira_access_token")) {
     history.replaceState({}, "", location.pathname);
     AUTH.open("login");
+    /* The studio sends `ended=1` when it has just dropped a session the server no longer
+       accepts. Landing back on a bare sign-in card is what made that look like a broken
+       login rather than an expired session. */
+    if (landing.get("ended")) {
+      el.message.textContent =
+        "Your session ended, so you have been signed out. Sign in again — this is not an error in your account.";
+    }
   }
   AUTH.verifyEmail();
 

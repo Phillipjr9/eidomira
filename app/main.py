@@ -375,8 +375,14 @@ def auth_change_password(request: PasswordChangeRequest, user=Depends(authentica
     current one is required, and why open sessions are left alone."""
     try:
         change_password(user["id"], request.current_password, request.new_password)
-    except PermissionError as exc:
+    except LookupError as exc:
+        # The account is gone or disabled. The session is unusable, so this really is 401.
         return JSONResponse({"error": str(exc)}, status_code=401)
+    except PermissionError as exc:
+        # Wrong current password: authenticated, refused. Deliberately not 401 — a client that
+        # treats 401-on-sent-token as a dead session would sign the user out for a typo, and
+        # this client does exactly that.
+        return JSONResponse({"error": str(exc)}, status_code=403)
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     return {"ok": True, "message": "Password updated"}

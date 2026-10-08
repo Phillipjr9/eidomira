@@ -660,6 +660,23 @@ someone who knows an address can deliberately trigger that lockout. The budget i
 before the password because that is the only ordering that slows guessing down. Raise
 `login_limit_per_hour` to trade protection for availability, or lower it to do the reverse.
 
+**A session survives the database being rebuilt, and says so when it ends.** The demo accounts
+are created with fixed ids — `demouser0000…`, `demoadmin000…` — rather than random ones. A
+session is signed over the account's id, so with a random id every rebuild of the database (a
+fresh deployment, a wiped volume, or the throwaway database a hosted preview runs on) left
+tokens pointing at rows that no longer existed: the server answered 401, the page signed the
+visitor out, and signing in again only bought time until the next rebuild. With fixed ids the
+rebuilt row is the same account and the session continues. An installation that already has
+demo accounts keeps their current ids; this decides only what a *new* one is created with. When
+a session really does end, the sign-in card now says so instead of appearing for no reason.
+
+**Changing the password is refused with 403, not 401, when the current one is wrong.** 401
+means "not authenticated", and the studio's client ends a session when a request that carried a
+token is answered 401 — so a mistyped password would have signed the user out of the page they
+were using to fix it. 403 says what is true: authenticated, and this one action refused. Related:
+no transient failure in the studio — a network blip, a billing payload that will not parse, a
+rendering error — may clear the token. Only the session check itself can, and only on a 401.
+
 **The password can be changed from Settings, and open sessions survive it.** `POST
 /api/auth/password` requires the current password — a session token alone must not be enough to
 take an account away from its owner — and applies the same length rule as sign-up. Sessions

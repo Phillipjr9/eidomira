@@ -71,7 +71,7 @@ def page_text(*names: str) -> str:
 def users() -> list[dict]:
     with database.lock, database.connect() as db:
         return [dict(row) for row in db.execute(
-            "SELECT email,role,disabled,email_verified_at FROM users ORDER BY email").fetchall()]
+            "SELECT id,email,role,disabled,email_verified_at FROM users ORDER BY email").fetchall()]
 
 
 # ── absence is the default ────────────────────────────────────────────────────
@@ -265,6 +265,65 @@ def test_an_omitted_role_gets_the_customer_and_never_the_administrator(demo_on):
     assert response.status_code == 200
     assert response.json()["user"]["email"] == demo.ACCOUNTS["user"]
     assert response.json()["user"]["role"] == "user"
+
+
+# ── a session that outlives the database ──────────────────────────────────────
+#
+# Measured in this repository's own preview, repeatedly: the database does not survive a
+# restart of the host, the demo accounts were rebuilt with fresh random ids, and every token
+# minted before the rebuild named a row that no longer existed. The server answered 401, the
+# page signed the visitor out, and signing in again only bought time until the next rebuild.
+
+def test_the_demo_accounts_are_created_with_fixed_ids(demo_on):
+    rows = {row["email"]: row["id"] for row in users()}
+    assert rows[demo.ACCOUNTS["user"]] == demo.DEMO_IDS["user"]
+    assert rows[demo.ACCOUNTS["admin"]] == demo.DEMO_IDS["admin"]
+    # Opaque, and the right shape for the column: the id is a string, not a number.
+    for user_id in demo.DEMO_IDS.values():
+        assert isinstance(user_id, str) and user_id
+
+
+def test_signing_in_survives_the_database_being_rebuilt(demo_on):
+    """The whole point. A token minted before the accounts are recreated must still work
+    afterwards, which is only true if the recreated account has the same id and the signing
+    key has not changed."""
+    with TestClient(app) as client:
+        response = client.post("/api/auth/demo-login", json={"role": "admin"})
+        assert response.status_code == 200
+        token = response.json()["access_token"]
+        assert client.get("/api/auth/me",
+                          headers={"authorization": f"Bearer {token}"}).json()["email"] \
+            == demo.ACCOUNTS["admin"]
+
+        # A rebuild: every account row is gone, exactly as a wiped volume leaves it, and the
+        # bootstrap runs again on the next start.
+        database.execute("DELETE FROM subscriptions")
+        database.execute("DELETE FROM credit_wallets")
+        database.execute("DELETE FROM credit_ledger")
+        database.execute("DELETE FROM users")
+        assert users() == []
+        created = demo.ensure_accounts()
+        assert sorted(created) == sorted(DEMO_EMAILS)
+
+        # The same token, against the rebuilt account.
+        again = client.get("/api/auth/me", headers={"authorization": f"Bearer {token}"})
+        assert again.status_code == 200, "the session did not survive the rebuild"
+        assert again.json()["email"] == demo.ACCOUNTS["admin"]
+        assert again.json()["role"] == "admin"
+
+
+def test_an_account_that_already_exists_keeps_its_id(demo_on):
+    """Changing an existing id would strand every wallet, subscription and ledger row that
+    references it, so the bootstrap never moves one."""
+    before = {row["email"]: row["id"] for row in users()}
+    database.execute("UPDATE users SET id='an-explicitly-different-id' WHERE email=?",
+                     (demo.ACCOUNTS["user"],))
+
+    assert demo.ensure_accounts() == []
+
+    after = {row["email"]: row["id"] for row in users()}
+    assert after[demo.ACCOUNTS["user"]] == "an-explicitly-different-id"
+    assert after[demo.ACCOUNTS["admin"]] == before[demo.ACCOUNTS["admin"]]
 
 
 # ── the optional password an owner may choose to publish ──────────────────────

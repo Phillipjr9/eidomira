@@ -40,12 +40,20 @@ def _spend_verification(password: str) -> None:
         pass
 
 
-def register(email: str, password: str):
+def register(email: str, password: str, user_id: str | None = None):
+    """Create an account. `user_id` is normally left to chance.
+
+    It is settable for the one caller that needs an account to have the *same* identity every
+    time it is created: the demo accounts, whose row is rebuilt whenever the database is
+    (app/demo.py explains why that matters). Everything else about this path — the address
+    rules, the password length, the uniqueness — is identical either way, so a fixed id is not
+    a way to make a special account.
+    """
     email = email.strip().lower()
     if not EMAIL.fullmatch(email): raise ValueError("Enter a valid email address")
     if len(password) < MINIMUM_PASSWORD:
         raise ValueError(f"Password must contain at least {MINIMUM_PASSWORD} characters")
-    user_id = uuid.uuid4().hex
+    user_id = user_id or uuid.uuid4().hex
     try:
         database.execute("INSERT INTO users(id,email,password_hash,created_at) VALUES(?,?,?,?)",
                          (user_id, email, hasher.hash(password), int(time.time())))
@@ -109,10 +117,14 @@ def change_password(user_id: str, current_password: str, new_password: str) -> N
     """
     user = database.one("SELECT password_hash FROM users WHERE id=? AND disabled=0", (user_id,))
     if not user:
-        raise PermissionError("Authentication required")
+        raise LookupError("Authentication required")
     try:
         hasher.verify(user["password_hash"], current_password)
     except VerifyMismatchError:
+        # PermissionError, not a 401: the caller *is* authenticated, and this one action is
+        # refused. The distinction is load-bearing on the client, where a 401 on a request
+        # that carried a token means the session itself is over — and a mistyped password is
+        # not that.
         raise PermissionError("That is not your current password") from None
     if len(new_password) < MINIMUM_PASSWORD:
         raise ValueError(f"Password must contain at least {MINIMUM_PASSWORD} characters")

@@ -12,8 +12,26 @@ async function apiFetch(url,options={}){
   const headers=new Headers(options.headers||{});
   if(accessToken)headers.set('Authorization','Bearer '+accessToken);
   const response=await fetch(url,{...options,headers});
-  if(response.status===401&&accessToken){setToken('');location.replace('/?signin=1')}
+  // `reauth:false` marks the calls where a 401 is not about the session: a wrong current
+  // password is refused with 403 for exactly this reason, and anything else that can answer
+  // 401 while the session is perfectly alive says so by passing this.
+  const sessionEnded=response.status===401&&accessToken&&options.reauth!==false;
+  if(sessionEnded){
+    setToken('');
+    // Say so on the way out. Being returned to the sign-in card with no explanation is
+    // indistinguishable from a broken login, which is what it was reported as.
+    location.replace('/?signin=1&ended=1');
+  }
   return response;
+}
+
+/* Ask the server who this token belongs to. Kept apart from the rest of the account load so
+ * that a failure to *render* something can never be mistaken for a dead session: only this
+ * call, and only its 401, ends a session. */
+async function sessionUser(){
+  const response=await apiFetch('/api/auth/me');
+  if(!response.ok)return null;
+  return response.json();
 }
 function setToken(token){accessToken=token||'';if(token)localStorage.setItem('eidomira_access_token',token);else localStorage.removeItem('eidomira_access_token')}
 function creditCount(n){return (n||0).toLocaleString('en-NG')}
@@ -163,10 +181,10 @@ function tokenExpiry(){
 
 async function loadAccount(){
   if(!accessToken){location.replace('/?signin=1');return}
+  const user=await sessionUser();
+  if(!user)return;                       // apiFetch has already ended the session, with a reason
+  me=user;
   try{
-    const response=await apiFetch('/api/auth/me');
-    if(!response.ok)throw Error();
-    me=await response.json();
     $('chipEmail').textContent=me.email;
     $('accountEmail').textContent=me.email;
     $('accountVerified').textContent=me.email_verified?'Yes':'Not yet — check your inbox';
@@ -175,8 +193,15 @@ async function loadAccount(){
     $('adminLink').hidden=me.role!=='admin';
     const expiry=tokenExpiry();
     $('sessionExpiry').textContent=expiry?expiry.toLocaleString():'unknown';
-    await loadBilling();
-  }catch{setToken('');location.replace('/?signin=1')}
+  }catch(error){
+    // Something other than the session failed: the billing payload, the network, or this
+    // page's own rendering. The session stays — clearing it here is what turned a transient
+    // error into a logout.
+    status('Your account did not finish loading ('+error.message+'). Retrying is safe.',true);
+    return;
+  }
+  try{await loadBilling()}
+  catch(error){status('Your balance could not be loaded ('+error.message+').',true)}
 }
 
 /* ------------------------------------------------------------------- billing
@@ -303,7 +328,7 @@ $('passwordForm').onsubmit=async event=>{
   if(next!==again)return note(message,'The two new passwords do not match.',true);
   $('pwSubmit').disabled=true;note(message,'Updating…');
   try{
-    const response=await apiFetch('/api/auth/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:current,new_password:next})});
+    const response=await apiFetch('/api/auth/password',{method:'POST',reauth:false,headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:current,new_password:next})});
     const result=await response.json();
     if(!response.ok)throw Error(result.error||'The password could not be changed');
     $('passwordForm').reset();
@@ -355,7 +380,13 @@ document.querySelectorAll('input[name=quality]').forEach(radio=>{
 loadAccount();loadAuthMethods();listDevices();applyPrefs();
 showView((location.hash||'#studio').slice(1));
 if(navigator.mediaDevices?.addEventListener)navigator.mediaDevices.addEventListener('devicechange',listDevices);
-if(new URLSearchParams(location.search).get('signin')){history.replaceState({},'',location.pathname);openAuth('login');}
+const landing=new URLSearchParams(location.search);
+if(landing.get('signin')){
+  const ended=Boolean(landing.get('ended'));
+  history.replaceState({},'',location.pathname);
+  openAuth('login');
+  if(ended)$('authMessage').textContent='Your session ended, so you have been signed out. Sign in again — this is not an error in your account.';
+}
 let media=null,pc=null,session=null,running=false,statsTimer=null,reconnects=0;
 let recorder=null,recordedChunks=[],recordUrl=null,recordedBlob=null,recordStarted=0,recordTimer=null;
 let cameraFacing='user',micStream=null,wakeLock=null,deferredInstall=null;
