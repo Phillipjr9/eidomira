@@ -38,12 +38,13 @@ BRANCH = "arena/178efbef-eidomira"
 
 ```python
 # Cell 2 — a GPU build of ONNX Runtime and insightface for the swap model.
-# The uninstall first is deliberate: Kaggle ships a CPU-only onnxruntime and both
-# distributions install into the same directory.
-!pip uninstall -y -q onnxruntime onnxruntime-gpu
-!pip install -q onnxruntime-gpu insightface onnx
-!python -c "import cv2" || pip install -q --force-reinstall opencv-python-headless
-!python -c "import onnxruntime as o; print(o.get_available_providers())"
+# insightface lists 'onnxruntime' in its requirements, which pulls in the CPU wheel.
+# We install insightface first, remove the CPU onnxruntime, then install onnxruntime-gpu.
+!pip install -q insightface onnx
+!pip uninstall -y -q onnxruntime
+!pip install -q --force-reinstall onnxruntime-gpu
+!python -c "import cv2" || python -m pip install -q --force-reinstall opencv-python-headless
+!python -c "import onnxruntime as o; print('Providers:', o.get_available_providers())"
 ```
 
 ```python
