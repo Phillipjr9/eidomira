@@ -43,6 +43,29 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+
+def preload_cuda_libraries() -> None:
+    """Preload NVIDIA CUDA/cuDNN shared libraries from site-packages or /usr/local/cuda."""
+    import ctypes
+    import glob
+    import os
+
+    search_paths = []
+    for p in sys.path:
+        search_paths.extend(glob.glob(os.path.join(p, "nvidia", "*", "lib")))
+    search_paths.append("/usr/local/cuda/lib64")
+    current_ld = os.environ.get("LD_LIBRARY_PATH", "")
+    os.environ["LD_LIBRARY_PATH"] = ":".join(search_paths) + (":" + current_ld if current_ld else "")
+    for path in search_paths:
+        for so_file in glob.glob(os.path.join(path, "*.so*")):
+            try:
+                ctypes.CDLL(so_file, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+
+
+preload_cuda_libraries()
+
 RESULTS: list[tuple[str, str]] = []
 
 
