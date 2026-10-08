@@ -227,6 +227,66 @@ change in this project.
 | validate the neural stack once licensed | Google Cloud trial credit | **$0** from the $300 |
 | a real user using it daily | Hetzner GEX44 | €184/mo |
 
+## If the only card you have is a virtual one
+
+This is common enough in Nigeria to be worth answering directly, and it changes the plan rather
+than blocking it. Two separate needs, two separate routes.
+
+### Validating the neural stack — free, no card at all
+
+**Kaggle Notebooks: 30 GPU-hours a week, T4 or P100, 16 GB.** No card at any point, ever;
+phone verification unlocks the accelerators. Colab's free tier adds roughly 12–15 more hours a
+week on a T4, also cardless. SageMaker Studio Lab used to be the third option and is **closing
+to new signups on 30 July 2026** — do not plan around it.
+
+Those are notebooks, so they cannot host the live studio: no public IP, no inbound UDP, no
+persistent process. What they *can* do is answer the question that must be answered before
+paying for anything, on a real GPU:
+
+```python
+!git clone https://github.com/<owner>/eidomira.git
+%cd eidomira
+!pip install -q onnxruntime-gpu onnx insightface
+!python tools/gpu_validation.py
+```
+
+That prints the provider the application will actually use, then per-stage timings — parser
+mask, compositor blend, restorer, one 128px swap pass, the boost at scale=2 — and extrapolates
+a frame budget at the three widths `app/adaptive.py` targets. It runs the stand-ins when no
+licensed weights are present, which proves the plumbing and measures the *host*; point
+`--models` at real weights to measure those instead. Kaggle's T4 is a reasonable stand-in for a
+rented T4 and a rough guide for anything better.
+
+### Hosting the public site — no card needed either
+
+The landing page, sign-in, dashboard, credits and the **on-device camera demo** need no GPU.
+Free CPU hosting (Render's free tier, or the Arena preview while building) serves all of it.
+The live swap needs a GPU box with UDP, and that is the one thing that has to wait.
+
+### The payment reality, stated plainly
+
+| provider | card policy | what it means here |
+|---|---|---|
+| Oracle Cloud | **rejects virtual, prepaid and single-use cards by policy** | the free-tier recommendation does not apply to a virtual-card holder; this is not a workaround-able setting |
+| Google Cloud / AWS / Azure | card required, and a real Visa/Mastercard virtual card from a fintech is **often** accepted | worth trying: GCP's $300 trial needs the billing account upgraded, and an accepted virtual card is enough |
+| Vast.ai | cards **and crypto** (BitPay, Crypto.com), $5 minimum | the only low-friction GPU option for a virtual-card-only user — but see the caveat below |
+| RunPod | card, $10 minimum deposit | and Pods cannot carry WebRTC media anyway |
+| Hetzner | card or PayPal | the eventual home; a real card will be needed by then, and by then Paystack revenue can pay for it |
+
+**The Vast.ai caveat is the important one:** it takes crypto, which is the cleanest payment
+route for a virtual-card-only user, and it is still **not usable for the live studio** — its
+instances share public IPs through port mapping, so our ephemeral UDP socket has no address to
+land on. It is fine for GPU jobs that are not live video: batch renders, offline experiments,
+running `tools/gpu_validation.py` against real weights.
+
+### So, in order
+
+1. **Today, free:** validate on Kaggle with the stand-ins. No card, no cost, real GPU timings.
+2. **When the licence lands:** run the same script with the real weights, still on Kaggle.
+3. **When you want the site public:** free CPU hosting, or the preview you already have.
+4. **When you want the live swap public:** a card that a cloud will accept. A Paystack sale or
+   two pays for a month of it — the loop closes on itself.
+
 ## What not to do
 
 * **Do not put the live studio on RunPod Pods.** UDP is unsupported there, in their words.

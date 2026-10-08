@@ -10,9 +10,17 @@ header it has a reason to consume and leaves the rest alone.
 from __future__ import annotations
 
 import http.client
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+#: Where the requests are forwarded. Read from `STUDIO_PROXY_UPSTREAM` ("host:port") so the
+#: reproduction can be pointed at a server on any port — a test hosting its own copy of the
+#: application, for instance — instead of only ever at whatever happens to be on 8000.
 UPSTREAM = ("127.0.0.1", 8000)
+if os.environ.get("STUDIO_PROXY_UPSTREAM"):
+    host, _, port = os.environ["STUDIO_PROXY_UPSTREAM"].rpartition(":")
+    UPSTREAM = (host or "127.0.0.1", int(port))
+
 HOP = {"connection", "keep-alive", "transfer-encoding", "content-length", "upgrade"}
 
 
@@ -24,8 +32,10 @@ class Proxy(BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else None
         # The whole point: `Authorization` does not go on.
         headers = {k: v for k, v in self.headers.items() if k.lower() != "authorization"}
-        headers["Host"] = "%s:%d" % UPSTREAM
-        connection = http.client.HTTPConnection(*UPSTREAM, timeout=30)
+        # Module attribute, not a captured constant, so a test can redirect it.
+        upstream = UPSTREAM
+        headers["Host"] = "%s:%d" % upstream
+        connection = http.client.HTTPConnection(*upstream, timeout=30)
         try:
             connection.request(method, self.path, body=body, headers=headers)
             response = connection.getresponse()
@@ -52,4 +62,5 @@ class Proxy(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    print("stripping Authorization, forwarding to %s:%d on port 8010" % UPSTREAM)
     ThreadingHTTPServer(("0.0.0.0", 8010), Proxy).serve_forever()

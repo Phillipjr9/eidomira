@@ -209,6 +209,16 @@ python -m tools.udp_probe serve --port 34789 --seconds 60   # on the host
 python -m tools.udp_probe send --host <the host> --port 34789   # from anywhere else
 ```
 
+No card at all? `tools/gpu_validation.py` measures the neural path on a free Kaggle or Colab
+GPU in one cell — provider, per-stage timings, and an extrapolated frame budget — so the host
+question is answered before anything is bought:
+
+```python
+!git clone https://github.com/<owner>/eidomira.git && cd eidomira
+!pip install -q onnxruntime-gpu onnx insightface
+!python tools/gpu_validation.py
+```
+
 [`docs/elastic-compute-plan.md`](docs/elastic-compute-plan.md) has the options, the dated
 prices, the regions worth picking for a Lagos user base, and the order of operations. On the
 host itself it is one command:

@@ -107,37 +107,74 @@ def test_the_alternate_header_authenticates_through_a_proxy_that_strips_authoriz
 
     `Authorization` is dropped between the browser and the application, which is exactly what
     the preview does; the token arrives in the plain header instead and the account is found.
+
+    This used to talk to whatever was listening on port 8000, which made it pass or fail
+    depending on whether a development server happened to be running — it went red the moment
+    the sandbox restarted and nothing was on 8000, having nothing to do with the fix it guards.
+    It now hosts the application itself, on a port the kernel picks, and the proxy is pointed
+    at that. Uvicorn's `capture_signals` yields instead of touching signals off the main
+    thread, so a server can be run inside a test.
     """
     import importlib.util
+    import socket
     import threading
+    import time
+
+    import uvicorn
 
     spec = importlib.util.spec_from_file_location(
         "auth_stripping_proxy", ROOT / "tools" / "auth_stripping_proxy.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    from http.server import ThreadingHTTPServer
-    server = ThreadingHTTPServer(("127.0.0.1", 0), module.Proxy)
-    port = server.server_address[1]
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    try:
-        with TestClient(app) as client:
-            token = client.post("/api/auth/demo-login",
-                                json={"role": "user"}).json()["access_token"]
+    # The application, for real, over a socket — the same one the proxy would meet in a
+    # deployment. TestClient cannot be used for this: the transport is the thing under test.
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(16)
+    application = uvicorn.Server(uvicorn.Config(app, log_level="critical", access_log=False))
+    threading.Thread(target=application.run, kwargs={"sockets": [listener]}, daemon=True).start()
+    deadline = time.time() + 20
+    while not application.started and time.time() < deadline:
+        time.sleep(0.05)
+    assert application.started, "the application did not come up — check for a port or import error"
+    server_port = listener.getsockname()[1]
 
+    from http.server import ThreadingHTTPServer
+    module.UPSTREAM = ("127.0.0.1", server_port)
+    proxy = ThreadingHTTPServer(("127.0.0.1", 0), module.Proxy)
+    proxy_port = proxy.server_address[1]
+    threading.Thread(target=proxy.serve_forever, daemon=True).start()
+
+    try:
+        import urllib.error
         import urllib.request as request
-        def ask(headers):
-            req = request.Request(f"http://127.0.0.1:{port}/api/auth/me", headers=headers)
+
+        def call(port, path, headers=None, body=None):
+            req = request.Request(f"http://127.0.0.1:{port}{path}", headers=headers or {},
+                                  data=json.dumps(body).encode() if body is not None else None)
+            if body is not None:
+                req.add_header("Content-Type", "application/json")
             with request.urlopen(req) as answer:
                 return json.loads(answer.read())
 
-        # The control: the header the proxy eats, alone.
-        assert ask({"Authorization": f"Bearer {token}"})["role"] == "guest"
+        # Straight to the application: the token is minted and works, both headers.
+        token = call(server_port, "/api/auth/demo-login", body={"role": "user"})["access_token"]
+        assert call(server_port, "/api/auth/me",
+                    {"Authorization": f"Bearer {token}"})["role"] == "user", \
+            "the direct route must work, or the proxy proves nothing"
+
+        # Through the proxy: the control, the header it eats, alone.
+        assert call(proxy_port, "/api/auth/me",
+                    {"Authorization": f"Bearer {token}"})["role"] == "guest"
         # The fix: the same token, in a header nothing has a reason to consume.
-        assert ask({"X-Eidomira-Token": token})["email"] == "demo@eidomira.test"
+        assert call(proxy_port, "/api/auth/me",
+                    {"X-Eidomira-Token": token})["email"] == "demo@eidomira.test"
     finally:
-        server.shutdown()
-        server.server_close()
+        proxy.shutdown()
+        proxy.server_close()
+        application.should_exit = True
 
 
 def test_the_client_says_it_both_ways():
