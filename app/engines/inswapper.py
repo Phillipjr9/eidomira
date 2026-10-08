@@ -82,9 +82,10 @@ class InSwapperEngine(FaceSwapEngine):
 
     def enroll(self, rgb):
         faces = self._faces(rgb)
-        if len(faces) != 1:
-            raise ValueError("Enrollment requires exactly one clearly visible face.")
-        return Enrollment(identity=faces[0], preview=rgb)
+        if not faces:
+            raise ValueError("Enrollment requires a clearly visible face.")
+        best_face = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
+        return Enrollment(identity=best_face, preview=rgb)
 
     def verify_self(self, rgb, identity):
         faces = self._faces(rgb)

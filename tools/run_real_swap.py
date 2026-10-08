@@ -20,8 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-PARSER_URL = "https://huggingface.co/facefusion/models-3.3.0/resolve/main/face_parser.onnx"
-RESTORER_URL = "https://huggingface.co/facefusion/models-3.3.0/resolve/main/gfpgan_1.4.onnx"
+PARSER_URL = "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/bisenet_resnet_34.onnx"
+RESTORER_URL = "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/gfpgan_1.4.onnx"
 MODEL_URL = "https://huggingface.co/ezioruan/inswapper_128.onnx/resolve/main/inswapper_128.onnx"
 DEFAULT_MODEL = ROOT / "models" / "inswapper_128.onnx"
 
@@ -124,11 +124,20 @@ def main():
     dst_rgb = cv2.cvtColor(dst_bgr, cv2.COLOR_BGR2RGB)
 
     print("Detecting and enrolling source identity…")
-    enrollment = engine.enroll(src_rgb)
+    faces = engine._faces(src_rgb)
+    if not faces:
+        print("Retrying detection with lower threshold…")
+        engine.analyzer.prepare(ctx_id=0 if "CUDAExecutionProvider" in engine.providers else -1, det_size=(640, 640), det_thresh=0.2)
+        faces = engine._faces(src_rgb)
+    if not faces:
+        print(f"Error: no face detected in source {options.source}")
+        return 1
+    best_src = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0]) * (f.bbox[3]-f.bbox[1]))
+    print(f"Source face detected: bbox={[int(x) for x in best_src.bbox]}")
 
     print("Running neural face swap onto target portrait…")
     t0 = time.perf_counter()
-    result = engine.process(dst_rgb, enrollment.identity, verified=True)
+    result = engine.process(dst_rgb, best_src, verified=True)
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
     out_bgr = cv2.cvtColor(result.image, cv2.COLOR_RGB2BGR)
