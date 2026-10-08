@@ -61,6 +61,17 @@ ROLES = tuple(ACCOUNTS)
 #: what a *new* demo account is created with.
 DEMO_IDS = {"user": "demouser000000000000000000000000", "admin": "demoadmin00000000000000000000000"}
 
+#: The password the demo accounts are created with when `STUDIO_DEMO_PASSWORD` is not set.
+#:
+#: It used to be a random string nobody could read, on the reasoning that a published password
+#: is a real account anyone can walk into. The owner of this installation asked for the
+#: opposite, twice: a password the demo actually uses, so the demo exercises the real sign-in
+#: path rather than a private shortcut, and so somebody can type it if the buttons are not
+#: there. That is the caller's call to make, and it is made safely rather than absolutely:
+#: this is only reachable while demo sign-in is on, and demo sign-in refuses to run at all
+#: while `PUBLIC_URL` is https. Set `STUDIO_DEMO_PASSWORD` to use a different one.
+DEFAULT_PASSWORD = "eidomira-demo-2026"
+
 
 def refusal_reason() -> str | None:
     """Why demo sign-in is off, when somebody asked for it and did not get it."""
@@ -93,29 +104,33 @@ def is_demo_email(email: str | None) -> bool:
 
 
 def published_password() -> str | None:
-    """The password the card is allowed to print, or None when the demo is button-only.
+    """The password the demo accounts accept, or None when demo sign-in is off.
 
-    None whenever the demo is off, so the API never hands out a credential for a feature that
-    is not running.
+    Always something while the demo is on — the configured value, else DEFAULT_PASSWORD — so
+    the accounts always have a password and the card can always show it. None whenever the
+    demo is off, so the API never hands out a credential for a feature that is not running.
     """
-    return settings.demo_password if (enabled() and settings.demo_password) else None
+    if not enabled():
+        return None
+    return settings.demo_password or DEFAULT_PASSWORD
 
 
-def _adopt_configured_password(user_id: str, current_hash: str) -> None:
-    """Bring a seeded account's password in line with the configured one.
+def _adopt_published_password(user_id: str, current_hash: str) -> None:
+    """Bring an existing demo account's password in line with the published one.
 
-    Only when one is configured: otherwise the random password from seeding stands, which is
-    exactly the point — nobody, including whoever reads the database, can sign in with it.
+    This is what makes `STUDIO_DEMO_PASSWORD` take effect on a restart rather than only for
+    accounts created afterwards, and what gives an account seeded before this default existed
+    a password that can actually be typed.
     """
-    if not settings.demo_password:
+    password = published_password()
+    if not password:
         return
     try:
-        if hasher.verify(current_hash, settings.demo_password):
+        if hasher.verify(current_hash, password):
             return
     except (VerificationError, InvalidHashError):
         pass
-    database.execute("UPDATE users SET password_hash=? WHERE id=?",
-                     (hasher.hash(settings.demo_password), user_id))
+    database.execute("UPDATE users SET password_hash=? WHERE id=?", (hasher.hash(password), user_id))
 
 
 def ensure_accounts() -> list[str]:
@@ -126,8 +141,8 @@ def ensure_accounts() -> list[str]:
     verified-email trial, because a demo account that behaves unlike a real one demonstrates
     the wrong thing.
 
-    It also keeps existing demo accounts' passwords in step with `STUDIO_DEMO_PASSWORD`, so
-    changing that setting takes effect on the next boot rather than only for accounts created
+    It also keeps existing demo accounts' passwords in step with the published one, so setting
+    `STUDIO_DEMO_PASSWORD` takes effect on the next boot rather than only for accounts created
     afterwards.
     """
     created: list[str] = []
@@ -138,12 +153,10 @@ def ensure_accounts() -> list[str]:
         if existing:
             if role == "admin" and existing["role"] != "admin":
                 database.execute("UPDATE users SET role='admin' WHERE id=?", (existing["id"],))
-            _adopt_configured_password(existing["id"], existing["password_hash"])
+            _adopt_published_password(existing["id"], existing["password_hash"])
             continue
-        # Random unless an owner configured one: nobody is ever shown the random value, so
-        # password sign-in to a demo account is impossible even for someone who knows the
-        # address, and the button is the only way in.
-        user = register_account(email, settings.demo_password or secrets.token_urlsafe(32),
+        # The published password, always: these accounts are meant to be signed into.
+        user = register_account(email, published_password() or secrets.token_urlsafe(32),
                                 user_id=DEMO_IDS[role])
         database.execute("UPDATE users SET email_verified_at=?, role=? WHERE id=?",
                          (int(time.time()), role, user["id"]))

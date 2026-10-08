@@ -157,10 +157,11 @@ def test_the_card_learns_the_addresses_from_the_server(demo_on):
 
 
 def test_no_page_carries_a_demo_credential():
-    """The rule this feature exists to keep, and its exact shape: no page *stores* an address
-    or a password. The addresses reach the card at run time, from an API that only offers them
-    while the demo is on; the passwords exist nowhere at all. If a future change writes either
-    into a file, this fails before a page does."""
+    """No page *stores* a credential, and that is still the rule.
+
+    Both the addresses and the password reach the card at run time, from an API that only
+    offers them while the demo is on, so turning the flag off empties the card. If a future
+    change writes either into the markup or into a script, this fails before a page does."""
     pages = page_text("app.html", "index.html", "app.js", "landing.js")
     for email in DEMO_EMAILS:
         assert email not in pages, f"{email} is written into a page"
@@ -326,6 +327,72 @@ def test_an_account_that_already_exists_keeps_its_id(demo_on):
     assert after[demo.ACCOUNTS["admin"]] == before[demo.ACCOUNTS["admin"]]
 
 
+# ── a browser that lost its storage is not a signed-out visitor ─────────────────
+#
+# The preview is served from `https://<port>-<sandbox>.e2b.app`, and the sandbox identifier
+# changed between two sessions of work on this feature: `iifsolp0din8orm9w5hce` became
+# `ipv1b4xm4krvvtj8q6qdo`. localStorage is per-origin, so a changed host is a changed site and
+# the token stored under the old one is invisible. A rebuilt database does the same thing. Both
+# present as "it logged me out again", and both are recoverable while the demo is on — a flag
+# that already means "anyone who can reach this can sign in" and already refuses to run over
+# https.
+
+def test_the_studio_can_put_a_lost_demo_session_back(demo_on):
+    """A request with no token at all is what a changed origin looks like to the server. The
+    studio asks for a session and carries on, instead of treating it as the end."""
+    with TestClient(app) as client:
+        minted = client.post("/api/auth/demo-login", json={"role": "user"})
+        assert minted.status_code == 200
+        token = minted.json()["access_token"]
+
+        assert client.get("/api/auth/me",
+                          headers={"authorization": f"Bearer {token}"}).json()["email"] \
+            == demo.ACCOUNTS["user"]
+
+
+def test_a_lost_session_is_restored_to_the_same_role(demo_on):
+    with TestClient(app) as client:
+        restored = client.post("/api/auth/demo-login", json={"role": "admin"})
+
+    assert restored.status_code == 200
+    assert restored.json()["user"]["role"] == "admin"
+    assert restored.json()["user"]["email"] == demo.ACCOUNTS["admin"]
+
+
+def test_the_client_restores_before_it_signs_anybody_out():
+    """Pinned in the source, since this suite has no DOM. The order is the whole fix."""
+    script = (STATIC / "app.js").read_text(encoding="utf-8")
+
+    assert "async function restoreDemoSession()" in script
+    assert "if(restoreAttempted)return false" in script, "a failed restore could loop"
+    assert "DEMO_ROLE_KEY" in script, "the restored session is not the same role"
+
+    # Nothing may decide the session is over before the restore is attempted. A redirect on the
+    # line that reads the token is how this failed a third time: the page navigated to the
+    # sign-in card while the restore was still in flight, so the browser followed the
+    # navigation and the session was put back on a page nobody was looking at any more.
+    head = script[:script.index("async function apiFetch")]
+    assert "location.replace" not in head, "a redirect runs before the session can be restored"
+
+    boot = script[script.index("async function loadAccount()"):]
+    assert "if(!accessToken&&!(await restoreDemoSession()))" in boot, \
+        "an empty token store ends the session without trying to restore"
+
+    api = script[script.index("async function apiFetch"):script.index("async function sessionUser()")]
+    assert api.index("restoreDemoSession") < api.index("location.replace('/?signin=1&ended=1')"), \
+        "a rejected token signs the visitor out before restore is attempted"
+
+
+def test_the_demo_buttons_use_the_password_path():
+    """Asked for directly: the demo uses the password too. The private minting endpoint stays
+    as a fallback so a button cannot dead-end on a deployment where sign-in itself is broken."""
+    for name, quote in (("app.js", "'"), ("landing.js", '"')):
+        script = (STATIC / name).read_text(encoding="utf-8")
+        assert f"{quote}/api/auth/login{quote}" in script, f"{name} does not use the password path"
+        assert "demo_password" in script, f"{name} does not know the password"
+        assert "/api/auth/demo-login" in script, f"{name} lost its fallback"
+
+
 # ── the optional password an owner may choose to publish ──────────────────────
 
 def test_a_configured_password_signs_in_on_the_ordinary_form(demo_on_with_password):
@@ -361,11 +428,11 @@ def test_the_card_is_offered_the_password_when_one_is_configured(demo_on_with_pa
         assert 'id="demoHint"' in markup, f"{name} has nowhere to print it"
 
 
-def test_without_one_there_is_no_password_on_the_card_at_all(demo_on):
+def test_the_card_is_always_told_the_password_while_the_demo_is_on(demo_on):
     with TestClient(app) as client:
         methods = client.get("/api/auth/methods").json()
 
-    assert methods["demo_password"] is None
+    assert methods["demo_password"] == demo.DEFAULT_PASSWORD
 
 
 def test_the_password_is_withheld_while_the_demo_is_off(monkeypatch, isolated_db):
@@ -414,27 +481,37 @@ def test_a_password_the_ordinary_rules_refuse_switches_the_demo_off(monkeypatch,
 
 
 def test_the_demo_passwords_are_not_guessable(demo_on):
-    """The password is a random string that appears nowhere — not in this repository, not in
-    a page, not in the response. So sign-in by password is not possible even for somebody who
-    knows the address, and the only way in is the button."""
-    for email in DEMO_EMAILS:
-        for guess in ("demo", "admin", "password", "demo1234", DEMO_EMAILS[0], ""):
-            assert authenticate(email, guess) is None, f"{email} accepted {guess!r}"
+    """The published password is the only thing that opens these accounts.
 
-    # Asserted on the syntax tree, not on the text: a substring search finds the word in the
-    # docstring that explains why there is no password to find, which is how this test failed
-    # the first time it ran.
+    They are meant to be signed into — that is what a demo account is — so the useful assertion
+    is not that no password exists but that nothing else works: not the address, not the role,
+    not the obvious guesses, and not a near miss on the real one.
+    """
+    published = demo.published_password()
+    for email in DEMO_EMAILS:
+        for guess in ("demo", "admin", "password", "demo1234", "eidomira-demo-2025",
+                      published + "x", published[:-1], published.upper(), DEMO_EMAILS[0], ""):
+            assert authenticate(email, guess) is None, f"{email} accepted {guess!r}"
+        assert authenticate(email, published), "the published password must work"
+
     tree = ast.parse((ROOT / "app" / "demo.py").read_text(encoding="utf-8"))
+    literals = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
             continue
-        names = [target.id for target in node.targets if isinstance(target, ast.Name)]
-        if not any("password" in name.lower() or "secret" in name.lower() for name in names):
-            continue
-        assert not isinstance(node.value, ast.Constant), (
-            f"app/demo.py assigns a literal to {names}: a password in the source is the one "
-            f"thing this feature is built not to have"
-        )
+        for target in node.targets:
+            if isinstance(target, ast.Name) and isinstance(node.value, ast.Constant):
+                literals[target.id] = node.value.value
+
+    # Exactly one password lives in the source, it is the published default, and it is named
+    # the way the docstring above it says. Anything else appearing here is a credential nobody
+    # decided to publish, which is the mistake this check exists to catch.
+    password_literals = {name: value for name, value in literals.items()
+                         if "password" in name.lower() or "secret" in name.lower()
+                         or "token" in name.lower()}
+    assert set(password_literals) == {"DEFAULT_PASSWORD"}, password_literals
+    assert password_literals["DEFAULT_PASSWORD"] == demo.DEFAULT_PASSWORD
+    assert len(demo.DEFAULT_PASSWORD) >= 10
 
 
 # ── the guard that matters on a real deployment ───────────────────────────────

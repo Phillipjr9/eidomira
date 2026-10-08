@@ -1,6 +1,9 @@
 const $=id=>document.getElementById(id);
 let accessToken=localStorage.getItem('eidomira_access_token')||'';
-if(!accessToken)location.replace('/?signin=1');
+/* No redirect on this line. An empty token store used to send the browser to the sign-in
+ * card right here, before anything could put the session back — so a lost session looked
+ * like a logout even though the next thing the page does is try to restore it. loadAccount()
+ * is the single place that decides, and it decides after that attempt. */
 /* One place where a dead session is noticed.
  *
  * A token can stop working for reasons the browser cannot see: the account was removed, the
@@ -15,13 +18,22 @@ async function apiFetch(url,options={}){
   // `reauth:false` marks the calls where a 401 is not about the session: a wrong current
   // password is refused with 403 for exactly this reason, and anything else that can answer
   // 401 while the session is perfectly alive says so by passing this.
-  const sessionEnded=response.status===401&&accessToken&&options.reauth!==false;
-  if(sessionEnded){
-    setToken('');
-    // Say so on the way out. Being returned to the sign-in card with no explanation is
-    // indistinguishable from a broken login, which is what it was reported as.
-    location.replace('/?signin=1&ended=1');
+  const rejected=response.status===401&&accessToken&&options.reauth!==false;
+  if(!rejected)return response;
+
+  // A token the server will not accept. Where the demo is on, this is almost always the
+  // preview's own doing — a rebuilt database or a changed hostname — so put the session back
+  // and repeat the request once. Only if that fails is the visitor actually signed out.
+  setToken('');
+  if(await restoreDemoSession()){
+    const retried=new Headers(options.headers||{});
+    retried.set('Authorization','Bearer '+accessToken);
+    const retry=await fetch(url,{...options,headers:retried});
+    if(retry.status!==401)return retry;
   }
+  // Say so on the way out. Being returned to the sign-in card with no explanation is
+  // indistinguishable from a broken login, which is what it was reported as.
+  location.replace('/?signin=1&ended=1');
   return response;
 }
 
@@ -133,9 +145,16 @@ $('authForm').onsubmit=async e=>{e.preventDefault();$('authSubmit').disabled=tru
  * says it is switched on, and it carries no credentials at all — pressing it asks the
  * server for a session, so there is nothing on this page to read, copy or leak.
  */
+/* Which demo account this browser signed in as, so a session that is lost can be restored to
+ * the same one rather than to whichever button was pressed first. */
+const DEMO_ROLE_KEY='eidomira_demo_role';
+let demoMethods=null;
+let restoreAttempted=false;
+
 async function loadAuthMethods(){
   try{
     const methods=await fetch('/api/auth/methods').then(r=>r.json());
+    demoMethods=methods;
     if(!methods.demo_login)return;
     const accounts=methods.demo_accounts||[];
     $('demoRow').querySelectorAll('.demoButton').forEach(button=>{
@@ -146,7 +165,7 @@ async function loadAuthMethods(){
     if(methods.demo_password){
       const hint=$('demoHint'),shown=document.createElement('code');
       shown.textContent=methods.demo_password;
-      $('demoRow').querySelector('[data-demo-label]').textContent='Demo access · one click, or sign in with the password below';
+      $('demoRow').querySelector('[data-demo-label]').textContent='Demo access · one click, or type the password below';
       hint.replaceChildren('Both accounts accept the same password — ',shown);
       hint.hidden=false;
     }
@@ -154,20 +173,69 @@ async function loadAuthMethods(){
   }catch{/* a demo is a convenience; the form is the product */}
 }
 
+/* Sign in as a demo account — through the password, on the ordinary sign-in endpoint.
+ *
+ * That is deliberate: the point of a demo account with a published password is that the demo
+ * exercises the real path, and if the real path is broken the demo should show it rather than
+ * route around it. The private minting endpoint stays as the fallback so a button can never
+ * dead-end on a deployment where sign-in itself is misconfigured. */
 async function demoSignIn(button){
   const message=$('authMessage');
+  const role=button.dataset.role;
   button.disabled=true;message.textContent='';message.style.color='';
   try{
-    const response=await fetch('/api/auth/demo-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:button.dataset.role})});
-    const result=await response.json();
-    if(!response.ok)throw Error(result.error||'Demo sign-in failed');
+    const methods=demoMethods||await fetch('/api/auth/methods').then(r=>r.json());
+    const account=(methods.demo_accounts||[]).find(a=>a.role===role);
+    // Both values come from the API, never from this file: a page that carries the addresses
+    // would still show a demo that the server has switched off.
+    const email=account&&account.email;
+    const password=methods.demo_password;
+    let result=null;
+    if(email&&password){
+      const form=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+      result=await form.json();
+      if(!form.ok)result=null;             // fall through to minting rather than dead-ending
+    }
+    if(!result){
+      const minted=await fetch('/api/auth/demo-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role})});
+      result=await minted.json();
+      if(!minted.ok)throw Error(result.error||'Demo sign-in failed');
+    }
     setToken(result.access_token);
+    try{localStorage.setItem(DEMO_ROLE_KEY,role)}catch{}
     $('authModal').hidden=true;
     await loadAccount();
   }catch(error){
     message.textContent=error.message;
     message.style.color='#fda4af';
   }finally{button.disabled=false}
+}
+
+/* Put back a demo session that was lost.
+ *
+ * Sessions here are lost for reasons nobody did wrong: the development database is rebuilt,
+ * so the account a token names is recreated; and a hosted preview is served from a hostname
+ * that changes when the sandbox does, which moves the whole origin and takes localStorage with
+ * it. Both look exactly like being logged out, and both are recoverable when the demo is on —
+ * which is already a flag that refuses to run over https, and already means "anyone who can
+ * reach this can sign in". So a lost demo session is restored instead of reported, to the same
+ * role as last time, and only once per page load so a genuine failure cannot loop.
+ */
+async function restoreDemoSession(){
+  if(restoreAttempted)return false;
+  restoreAttempted=true;
+  try{
+    const methods=demoMethods||await fetch('/api/auth/methods').then(r=>r.json());
+    demoMethods=methods;
+    if(!methods.demo_login)return false;
+    let role='user';
+    try{role=localStorage.getItem(DEMO_ROLE_KEY)||'user'}catch{}
+    const response=await fetch('/api/auth/demo-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role})});
+    if(!response.ok)return false;
+    const result=await response.json();
+    setToken(result.access_token);
+    return true;
+  }catch{return false}
 }
 
 /* ------------------------------------------------------------------- account */
@@ -180,7 +248,10 @@ function tokenExpiry(){
 }
 
 async function loadAccount(){
-  if(!accessToken){location.replace('/?signin=1');return}
+  if(!accessToken&&!(await restoreDemoSession())){
+    location.replace('/?signin=1');
+    return;
+  }
   const user=await sessionUser();
   if(!user)return;                       // apiFetch has already ended the session, with a reason
   me=user;

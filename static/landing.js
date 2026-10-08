@@ -129,19 +129,36 @@
 
     /* One-click demo sign-in, when the server offers it. No credentials are read from
        this page or written to it: the button asks for a session. */
+    /* Sign in as a demo account — through the password, on the ordinary sign-in endpoint,
+       with the private minting endpoint kept as a fallback so a button cannot dead-end. */
     async function demoSignIn(button) {
       button.disabled = true;
       el.message.textContent = "";
       el.message.style.color = "";
+      const role = button.dataset.role;
       try {
-        const response = await fetch("/api/auth/demo-login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: button.dataset.role }),
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Demo sign-in failed");
+        const methods = await fetch("/api/auth/methods").then((r) => r.json());
+        const account = (methods.demo_accounts || []).find((a) => a.role === role);
+        let result = null;
+        if (account && methods.demo_password) {
+          const form = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: account.email, password: methods.demo_password }),
+          });
+          if (form.ok) result = await form.json();
+        }
+        if (!result) {
+          const minted = await fetch("/api/auth/demo-login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ role }),
+          });
+          result = await minted.json();
+          if (!minted.ok) throw new Error(result.error || "Demo sign-in failed");
+        }
         localStorage.setItem(tokenKey, result.access_token);
+        localStorage.setItem("eidomira_demo_role", role);
         location.href = "/app";
       } catch (error) {
         el.message.textContent = error.message;

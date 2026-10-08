@@ -660,6 +660,18 @@ someone who knows an address can deliberately trigger that lockout. The budget i
 before the password because that is the only ordering that slows guessing down. Raise
 `login_limit_per_hour` to trade protection for availability, or lower it to do the reverse.
 
+**A lost session is restored, not reported.** Two things take a session away in a hosted
+preview, and neither is anybody's mistake. The sandbox identifier changes — it changed between
+two sessions of work on this feature, `iifsolp0din8orm9w5hce` to `ipv1b4xm4krvvtj8q6qdo` — and
+because the preview is served from `https://<port>-<sandbox>.e2b.app`, that moves the whole
+origin, taking `localStorage` with it. And the development database is rebuilt, so the account a
+token names is recreated. Both look exactly like being logged out. While `STUDIO_DEMO_LOGIN` is
+on, the studio now asks for a demo session and carries on, restoring the same role as last time,
+once per page load so a genuine failure cannot loop; only if that fails is the visitor actually
+signed out, with the message saying so. A stray redirect on the line that reads the token had to
+go for this to work at all — it navigated to the sign-in card while the restore was still in
+flight.
+
 **A session survives the database being rebuilt, and says so when it ends.** The demo accounts
 are created with fixed ids — `demouser0000…`, `demoadmin000…` — rather than random ones. A
 session is signed over the account's id, so with a random id every rebuild of the database (a
@@ -689,14 +701,14 @@ token expires.
 — that open a seeded account without a password. Each button names the account it opens
 (`demo@eidomira.test`, `admin@eidomira.test`); the addresses arrive from
 `/api/auth/methods` at run time, so the card cannot advertise an account that does not
-exist. No *password* is published by default — they are random strings that exist in no file and
-are never shown — because the button mints a session instead of typing a credential, and a
-password printed on a public page would be a real account anyone could walk into. If you do
-want a credential you can type, set `STUDIO_DEMO_PASSWORD` (10 characters or more, the same
-rule the sign-up form applies): both demo accounts then accept it on the ordinary sign-in
-form and the card prints it, which is the entire point of setting one. It is honoured only
-while demo sign-in is on, changing it takes effect on the next restart, and leaving it unset
-keeps the buttons as the only way in. The
+exist. Both demo accounts have a password, and the card shows it. That is deliberate: the demo is
+meant to exercise the ordinary sign-in path rather than a private shortcut around it, so the
+buttons submit the same form a customer would, and somebody can type the credentials instead.
+The default is `eidomira-demo-2026`; set `STUDIO_DEMO_PASSWORD` to use your own (10 characters
+or more, the rule the sign-up form applies, and changing it takes effect on the next restart).
+It is honoured only while demo sign-in is on, and turning the flag off takes the address and
+the password off the card without anybody editing the page. The `POST /api/auth/demo-login`
+route remains as the fallback the buttons use if the ordinary path fails, and for scripts. The
 `.test` domain is reserved by RFC 2606, so the addresses cannot collide with a customer or
 receive mail. Setting the flag while `STUDIO_PUBLIC_URL` is `https://`
 turns the feature **off, not on** — an administrator account one click from a public page
