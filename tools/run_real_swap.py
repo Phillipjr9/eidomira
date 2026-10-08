@@ -79,6 +79,14 @@ def main():
 
     preload_cuda()
 
+    try:
+        import insightface
+    except ImportError:
+        print("Installing insightface and dependencies…")
+        import subprocess
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "insightface"], check=True)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "requests", "tqdm", "scikit-image", "scipy", "opencv-python-headless"], check=False)
+
     if not options.model.exists() or options.model.stat().st_size < 100_000_000:
         download_model(options.model)
 
