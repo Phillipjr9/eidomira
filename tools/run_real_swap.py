@@ -129,7 +129,9 @@ def main():
     engine = InSwapperEngine(str(options.model), threshold=0.34)
     print(f"Engine initialized in {(time.perf_counter() - started) * 1000:.1f} ms")
     print(f"Provider in use: {engine.provider} (accelerated: {engine.accelerated})")
-    print(f"Compositor (BiSeNet): {'ACTIVE' if engine.compositor is not None else 'DISABLED'}")
+    if engine.restorer is None and restorer_path.exists():
+        from app.enhance import FaceRestorer
+        engine.restorer = FaceRestorer(str(restorer_path), visibility=1.0)
     print(f"Restorer (GFPGAN):   {'ACTIVE' if engine.restorer is not None else 'DISABLED'}")
 
     def find_face_image(candidates):
@@ -169,13 +171,15 @@ def main():
         return 1
     print(f"Target face: {dst_path.name} (bbox={[int(x) for x in best_dst.bbox]})")
 
-    print(f"Running neural face swap with GFPGAN & BiSeNet ({src_path.name} -> {dst_path.name})…")
+    print(f"Running neural face swap with GFPGAN restoration ({src_path.name} -> {dst_path.name})…")
     t0 = time.perf_counter()
+    # Bypass double-exposure compositor and secondary tone transfer for clean commercial swap
+    engine.compositor = None
     result = engine.process(
         dst_rgb, best_src, verified=True,
         overrides={
-            "tone_transfer_strength": 0.45,
-            "parser_feather": 0.55,
+            "tone_transfer_strength": 0.0,
+            "parser_feather": 0.0,
             "restoration_visibility": 1.0,
         }
     )
