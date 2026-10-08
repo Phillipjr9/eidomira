@@ -205,44 +205,58 @@ def measure(models: Path, source=None) -> None:
     report("restorer fault", restorer.fault or "none")
 
     # ── the swap, through the loader the engine uses ───────────────────────────
+    #
+    # Not fatal if this fails. `insightface` builds from source and can fail on a shared
+    # notebook; the swap is one stage of four, and a run that reports the other three still
+    # answers the question. What it must not do is print a frame budget that silently omits
+    # the most expensive stage, so the omission is stated on the line above the table.
+    swapper = None
+    swap_ms = 0.0
     try:
         import insightface
     except ImportError:
-        report("swap", "insightface is not installed — skipped")
-        return
-    try:
-        swapper = insightface.model_zoo.get_model(str(models / "inswapper_128.onnx"),
-                                                 providers=compositor.providers)
-    except Exception as error:
-        report("swap", f"could not load the model: {type(error).__name__}")
-        return
+        report("swap", "insightface is not installed — no swap timing")
+    else:
+        try:
+            swapper = insightface.model_zoo.get_model(str(models / "inswapper_128.onnx"),
+                                                     providers=compositor.providers)
+        except Exception as error:
+            report("swap", f"could not load the model: {type(error).__name__}: {error}")
 
-    import numpy as np
-    rng = np.random.default_rng(0)
-    latent = rng.normal(size=(1, 512)).astype(np.float32)
-    crop = frame[:128, :128, ::-1].copy()
+    if swapper is None:
+        report("swap model", "unavailable — the swap pass is missing from the budget below")
+    else:
+        import numpy as np
+        rng = np.random.default_rng(0)
+        latent = rng.normal(size=(1, 512)).astype(np.float32)
+        crop = frame[:128, :128, ::-1].copy()
 
-    def one_pass():
-        blob = crop.astype(np.float32).transpose(2, 0, 1)[None]
-        return swapper.forward(blob, latent)
+        def one_pass():
+            blob = crop.astype(np.float32).transpose(2, 0, 1)[None]
+            return swapper.forward(blob, latent)
 
-    swap_ms, swap_worst = time_it(one_pass, repeats=10)
-    report("swap, one 128px pass", f"{swap_ms:.1f} ms median, {swap_worst:.1f} ms worst")
+        swap_ms, swap_worst = time_it(one_pass, repeats=10)
+        report("swap, one 128px pass", f"{swap_ms:.1f} ms median, {swap_worst:.1f} ms worst")
 
-    # ── the boost, which is four of those ─────────────────────────────────────
-    from app import boost
+        # ── the boost, which is four of those ─────────────────────────────────
+        from app import boost
 
-    def swap_once(pixels):
-        blob = pixels[:, :, ::-1].astype(np.float32).transpose(2, 0, 1)[None]
-        out = swapper.forward(blob, latent)[0].transpose(1, 2, 0)
-        return np.clip(out * 255, 0, 255).astype(np.uint8)[:, :, ::-1]
+        def swap_once(pixels):
+            blob = pixels[:, :, ::-1].astype(np.float32).transpose(2, 0, 1)[None]
+            out = swapper.forward(blob, latent)[0].transpose(1, 2, 0)
+            return np.clip(out * 255, 0, 255).astype(np.uint8)[:, :, ::-1]
 
-    boosted = boost.boosted_face(lambda dx, dy: crop, swap_once, scale=2)
-    report("boost scale=2 canvas", f"{boosted.shape[1]}x{boosted.shape[0]} (4 swap passes)")
+        boosted = boost.boosted_face(lambda dx, dy: crop, swap_once, scale=2)
+        report("boost scale=2 canvas", f"{boosted.shape[1]}x{boosted.shape[0]} (4 swap passes)")
 
     # ── what that means for a frame budget ────────────────────────────────────
     full = swap_ms + mask_ms + restore_ms + blend_ms
-    print("\n  one frame, all stages in sequence (before the boost):")
+    if swapper is None:
+        print("\n  one frame, WITHOUT the swap stage — a floor, not a budget:")
+        print("    the swap is the largest stage of the four, so treat these as the least it")
+        print("    can cost, not as what a frame will cost.")
+    else:
+        print("\n  one frame, all stages in sequence (before the boost):")
     for label, width_px in (("speed   ", 384), ("balanced", 768), ("quality ", 960)):
         # Cost scales with pixels, so this is an honest extrapolation for a convolution-
         # shaped model and a rough guide for a real one. The three widths are the ones
@@ -252,8 +266,9 @@ def measure(models: Path, source=None) -> None:
         report(f"  {label} @ {width_px}px",
                f"{scaled:.1f} ms/frame -> {1000.0 / max(scaled, 1e-6):.1f} fps")
 
-    print("\n  above is BEFORE the pixel boost. At scale=2 the swap runs four times per face,")
-    print("  so add roughly 3x the swap time to the figures above.")
+    if swapper is not None:
+        print("\n  above is BEFORE the pixel boost. At scale=2 the swap runs four times per")
+        print("  face, so add roughly 3x the swap time to the figures above.")
 
 
 def main(argv: list[str] | None = None) -> int:
