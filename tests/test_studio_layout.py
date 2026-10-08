@@ -160,20 +160,43 @@ def test_preferences_say_they_are_this_browser_only():
 
 
 def test_only_a_session_failure_can_end_a_session():
-    """Two ways this went wrong and must not again: any transient error inside the account
-    load used to clear the token (a rendering failure looked like a logout), and any 401 used
-    to end the session (a wrong current password would have signed the user out of the page
-    they were using to change it)."""
-    # The session check is its own call, and it is the only one whose failure ends a session.
+    """Three ways this went wrong, each reported by the user as "it logged me out".
+
+    Any transient error inside the account load used to clear the token, so a rendering
+    failure looked like a logout. A wrong current password used to answer 401 and sign the
+    user out of the page they were using to change it. And any 401 from *any* endpoint used to
+    end the session — `/api/billing/account` answers 401 to an anonymous caller by design, and
+    the page read that as a dead session while `/api/auth/me` was answering 200 with the
+    account. Only the endpoint that identifies a token may end a session now, and it is asked
+    before anything is ended.
+    """
+    # The session check is its own call, routed around apiFetch so it cannot answer circularly,
+    # and it is the only one whose failure ends a session.
     assert "async function sessionUser()" in APP_JS
-    assert "if(!user)return;" in APP_JS, "the account load no longer depends on the session call"
-    assert "reauth:false" in APP_JS, "the password form can still end a session"
-    password_call = APP_JS[APP_JS.index("'/api/auth/password'"):]
-    assert password_call[:200].count("reauth:false") == 1
+    assert "apiFetch('/api/auth/me')" not in APP_JS, "the session check goes through the caller"
+    assert "endSession(" in APP_JS
+    assert "location.replace" in APP_JS, "nothing sends a visitor to the sign-in card"
+
+    # A 401 buys a restore, a retry, and then a question put to the session endpoint — in that
+    # order, and only then a decision.
+    api = APP_JS[APP_JS.index("async function apiFetch"):APP_JS.index("async function sessionUser()")]
+    assert api.index("restoreDemoSession") < api.index("await sessionUser()")
+    assert api.index("await sessionUser()") < api.index("endSession(")
+    assert "user===undefined" in api, "a server that did not answer is treated as a sign-out"
+
+    # The account load tells the three outcomes apart instead of collapsing them.
+    load = APP_JS[APP_JS.index("async function loadAccount()"):]
+    assert "if(user===undefined)" in load and "if(user===null)" in load
+    assert "if(!user)return;" not in load, "an unknown answer is treated as no session"
 
     # And the catch that used to sign people out keeps the session.
     assert "catch{setToken('');location.replace('/?signin=1')}" not in APP_JS
     assert "Your account did not finish loading" in APP_JS
+
+    # The password form is still the one call that says a 401 is not about the session.
+    assert "reauth:false" in APP_JS
+    password_call = APP_JS[APP_JS.index("'/api/auth/password'"):]
+    assert password_call[:200].count("reauth:false") == 1
 
 
 def test_an_ended_session_says_so():
@@ -186,15 +209,25 @@ def test_an_ended_session_says_so():
     assert 'id="authMessage"' in APP_HTML, "nowhere to say it"
 
 
-def test_a_dead_session_is_noticed_instead_of_being_ignored():
-    """The user's own log showed it: /api/auth/me answered 200 (the guest fallback) while
-    /api/billing/account and four checkout attempts answered 401, because the browser held a
-    token for an account the rebuilt database no longer had. The page looked signed in and did
-    nothing. One place now treats a 401 on a request that carried a token as the session being
-    over."""
-    assert "response.status===401&&accessToken" in APP_JS
-    assert "location.replace('/?signin=1&ended=1')" in APP_JS, "the reason is no longer sent"
-    assert "setToken('');" in APP_JS, "the dead token is no longer dropped"
+def test_a_200_from_the_session_endpoint_is_not_by_itself_a_session():
+    """`/api/auth/me` answers 200 to an anonymous caller, with a guest record. A caller that
+    only checked `response.ok` took that guest for a signed-in user, which is why the one
+    function whose job is to decide the session could not decide it."""
+    session = APP_JS[APP_JS.index("async function sessionUser()"):APP_JS.index("window.eidomiraSession")]
+    assert "response.status===401)return null" in session, "a refused token is not recognised"
+    assert "role==='guest'" in session, "the guest record is taken for a user"
+    assert "local-guest" in session, "the guest record is taken for a user"
+    assert "return undefined" in session, "the server not answering is read as a sign-out"
+
+
+def test_the_console_can_be_asked_what_the_page_believes():
+    """The user asked for the console. Every one of these failures is a decision this file
+    makes, and that decision was invisible from outside, so it can be asked for by name."""
+    assert "window.eidomiraSession" in APP_JS
+    report = APP_JS[APP_JS.index("window.eidomiraSession"):]
+    assert "token:accessToken?'present':'none'" in report, "it does not say whether a token is held"
+    assert "server:" in report, "it does not say what the server thinks"
+    assert "accessToken}" not in report, "it would print the credential itself"
 
 
 def test_the_engine_card_states_what_the_backend_is():

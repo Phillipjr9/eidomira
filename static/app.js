@@ -4,13 +4,32 @@ let accessToken=localStorage.getItem('eidomira_access_token')||'';
  * card right here, before anything could put the session back — so a lost session looked
  * like a logout even though the next thing the page does is try to restore it. loadAccount()
  * is the single place that decides, and it decides after that attempt. */
-/* One place where a dead session is noticed.
+/* The one place a visit ends, and the one place that says why.
  *
- * A token can stop working for reasons the browser cannot see: the account was removed, the
- * database was rebuilt, or the signing key changed. Every call then answered 401 and the page
- * carried on looking signed in — the balance never filled in, checkout did nothing, and the
- * only clue was silence. A 401 on a request that carried a token means that token is finished,
- * so it is dropped and the visitor is sent to the sign-in card, once, here. */
+ * Three different things used to arrive here — a token the server refused, a request the
+ * server refused for a reason that had nothing to do with the session, and a page that never
+ * had a token at all — and from the outside all three looked identical. They are not the same
+ * thing, and the difference is this whole bug: a refusal aimed at one request must never sign
+ * anybody out. The reason is said out loud, because the console is where this gets diagnosed
+ * and because the sign-in card is otherwise indistinguishable from a broken login. */
+let sessionEnded=false;
+function endSession(reason,ended=true){
+  if(sessionEnded)return;
+  sessionEnded=true;
+  console.warn('[eidomira] ending this session: '+reason);
+  setToken('');
+  location.replace('/?signin=1'+(ended?'&ended=1':''));
+}
+
+/* One place where a request is allowed to disagree about the session.
+ *
+ * A 401 on a call that carried a token used to mean "that token is finished": dropped, and the
+ * visitor sent to the sign-in card. That reading is wrong for every endpoint except the one
+ * whose job is to identify the token. `/api/billing/account` answers 401 to an anonymous
+ * caller, which is a correct refusal — and the page took it for a dead session and signed the
+ * visitor out while `/api/auth/me` was happily answering 200 with their account. So a 401 now
+ * buys a restore attempt and a retry first, and whichever way that goes, only the session
+ * endpoint may end a session. */
 async function apiFetch(url,options={}){
   const headers=new Headers(options.headers||{});
   if(accessToken)headers.set('Authorization','Bearer '+accessToken);
@@ -21,30 +40,89 @@ async function apiFetch(url,options={}){
   const rejected=response.status===401&&accessToken&&options.reauth!==false;
   if(!rejected)return response;
 
-  // A token the server will not accept. Where the demo is on, this is almost always the
-  // preview's own doing — a rebuilt database or a changed hostname — so put the session back
-  // and repeat the request once. Only if that fails is the visitor actually signed out.
-  setToken('');
+  console.warn('[eidomira] '+url+' answered 401 while a token was sent');
+  // Where the demo is on this is almost always the preview's own doing — a rebuilt database or
+  // a changed hostname — so put the session back and repeat the request once. The token is
+  // deliberately not cleared first: it may be perfectly good, and throwing it away here is
+  // what left the session check below with nothing to check.
   if(await restoreDemoSession()){
     const retried=new Headers(options.headers||{});
     retried.set('Authorization','Bearer '+accessToken);
     const retry=await fetch(url,{...options,headers:retried});
     if(retry.status!==401)return retry;
+    console.warn('[eidomira] '+url+' still answered 401 with a brand-new session');
   }
-  // Say so on the way out. Being returned to the sign-in card with no explanation is
-  // indistinguishable from a broken login, which is what it was reported as.
-  location.replace('/?signin=1&ended=1');
+
+  // Before signing anybody out, ask the one endpoint whose whole job is to say who this token
+  // belongs to. A refusal from anywhere else means "you may not do this", which is not the
+  // same as "you are not signed in".
+  const user=await sessionUser();
+  if(user===undefined){
+    // The server could not be asked, so nobody knows. Unknown is never a reason to sign out.
+    status('The server did not answer just now. Your session is untouched — try again in a moment.',true);
+    return response;
+  }
+  if(user){
+    me=user;
+    status('That part of the page was refused, but your session is fine. Reload if it repeats.',true);
+    console.warn('[eidomira] keeping the session for '+user.email+' despite the 401 from '+url);
+    return response;
+  }
+  endSession('the server refused this token on '+url);
   return response;
 }
 
-/* Ask the server who this token belongs to. Kept apart from the rest of the account load so
- * that a failure to *render* something can never be mistaken for a dead session: only this
- * call, and only its 401, ends a session. */
+/* Ask the server who this token belongs to — the only authority on whether this browser is
+ * signed in. Deliberately not routed through apiFetch: this is the call that apiFetch asks
+ * when it needs to know, and a circular answer would be worth nothing.
+ *
+ * It answers three different things and the difference matters:
+ *   a record  — this is a session, and this is whose
+ *   null      — there is no session: the token was refused, or there was no token to send
+ *   undefined — the server could not be asked, which says nothing about the session
+ *
+ * A 200 is not by itself a session. `/api/auth/me` answers 200 to an anonymous caller with a
+ * guest record whose address is local@eidomira.invalid, so a caller that only checked
+ * `response.ok` would take that guest for a signed-in user — and the page could then sit there
+ * looking signed in as somebody who does not exist. */
 async function sessionUser(){
-  const response=await apiFetch('/api/auth/me');
-  if(!response.ok)return null;
-  return response.json();
+  let response;
+  try{
+    response=await fetch('/api/auth/me',{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});
+  }catch(error){
+    console.warn('[eidomira] could not reach the server to check the session:',error.message);
+    return undefined;
+  }
+  if(response.status===401)return null;          // the token itself was refused
+  if(!response.ok){
+    console.warn('[eidomira] /api/auth/me answered '+response.status);
+    return undefined;
+  }
+  const user=await response.json();
+  if(!user||!user.id||user.role==='guest'||user.id==='local-guest')return null;
+  return user;
 }
+
+/* Type `await eidomiraSession()` in this page's console to see what the page believes about the
+ * session and why. It exists because every one of these failures is a decision this file makes,
+ * and that decision used to be invisible from outside. It prints no credential: present or not,
+ * when it expires, and what the server says about it. */
+window.eidomiraSession=async()=>{
+  const user=await sessionUser();
+  const expiry=tokenExpiry();
+  const report={
+    token:accessToken?'present':'none',
+    expires:expiry?expiry.toLocaleString():'unknown',
+    server:user===undefined?'did not answer':user===null?'no session (guest, or the token was refused)':user.email,
+    role:user?user.role:null,
+    role_remembered_for_the_demo:(()=>{try{return localStorage.getItem(DEMO_ROLE_KEY)}catch{return"unreadable"}})(),
+    restore_already_attempted:restoreAttempted,
+    signed_out:sessionEnded,
+    storage:Object.keys(localStorage),
+  };
+  console.log('[eidomira] session',report);
+  return report;
+};
 function setToken(token){accessToken=token||'';if(token)localStorage.setItem('eidomira_access_token',token);else localStorage.removeItem('eidomira_access_token')}
 function creditCount(n){return (n||0).toLocaleString('en-NG')}
 function walletDate(seconds){return new Date(seconds*1000).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})}
@@ -249,11 +327,20 @@ function tokenExpiry(){
 
 async function loadAccount(){
   if(!accessToken&&!(await restoreDemoSession())){
-    location.replace('/?signin=1');
+    endSession('there was no session in this browser to restore',false);
     return;
   }
   const user=await sessionUser();
-  if(!user)return;                       // apiFetch has already ended the session, with a reason
+  if(user===undefined){
+    // The server did not answer. That is not a session ending, and saying so is the whole
+    // point: a flaky moment must not look like being logged out.
+    status('The server did not answer just now. Your session is untouched — reload when you like.',true);
+    return;
+  }
+  if(user===null){
+    endSession('the server says this token is not a session');
+    return;
+  }
   me=user;
   try{
     $('chipEmail').textContent=me.email;

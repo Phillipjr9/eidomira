@@ -370,16 +370,20 @@ def test_the_client_restores_before_it_signs_anybody_out():
     # Nothing may decide the session is over before the restore is attempted. A redirect on the
     # line that reads the token is how this failed a third time: the page navigated to the
     # sign-in card while the restore was still in flight, so the browser followed the
-    # navigation and the session was put back on a page nobody was looking at any more.
+    # navigation and the session was put back on a page nobody was looking at any more. The
+    # redirect now exists only inside that one decision, which fires once and is never reached
+    # at load time.
     head = script[:script.index("async function apiFetch")]
-    assert "location.replace" not in head, "a redirect runs before the session can be restored"
+    assert "if(!accessToken)location" not in script, "a statement redirects before the restore"
+    assert head.count("location.replace") == 1, "a redirect is reachable before the decision"
+    assert "function endSession(" in head and "if(sessionEnded)return" in head
 
     boot = script[script.index("async function loadAccount()"):]
     assert "if(!accessToken&&!(await restoreDemoSession()))" in boot, \
         "an empty token store ends the session without trying to restore"
 
     api = script[script.index("async function apiFetch"):script.index("async function sessionUser()")]
-    assert api.index("restoreDemoSession") < api.index("location.replace('/?signin=1&ended=1')"), \
+    assert api.index("restoreDemoSession") < api.index("endSession("), \
         "a rejected token signs the visitor out before restore is attempted"
 
 

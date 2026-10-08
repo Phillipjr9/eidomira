@@ -660,6 +660,24 @@ someone who knows an address can deliberately trigger that lockout. The budget i
 before the password because that is the only ordering that slows guessing down. Raise
 `login_limit_per_hour` to trade protection for availability, or lower it to do the reverse.
 
+**Only a session failure may end a session, and it is asked first.** Three separate things used
+to sign people out, and all three were reported as one bug. The last of them was found by reading
+the access log of the browser that hit it: `/api/auth/me` answered 200, `/api/billing/account`
+answered 401, a new session was minted correctly, the retry answered 401 again, and the page
+signed the visitor out — even though the session had never been rejected. Two mistakes made that
+possible. `/api/auth/me` answers 200 to an anonymous caller with a *guest* record, so the one
+call whose job is to decide the session could not decide it (and the account chip could render
+`local@eidomira.invalid`, an account that does not exist). And `/api/billing/account` answering
+401 to an anonymous caller — a correct refusal that says nothing about the session — was read as
+a dead token. Now: a 401 buys a restore and a retry; if it survives that, the session endpoint is
+asked directly, and only its answer can end a session. If the server cannot be asked at all, the
+session stays, because "no answer" is not "signed out". `endSession()` is the single place a visit
+ends, it fires once, and it says why in the console. Type `await eidomiraSession()` in that
+page's console to see what the page believes: whether a token is held, when it expires, who the
+server says it belongs to, and whether the demo could restore one. On the server, every 401 on
+`/api/` now logs whether a credential was sent and refused, or whether none was sent — the
+distinction the incident log could not make. No credential is logged.
+
 **A lost session is restored, not reported.** Two things take a session away in a hosted
 preview, and neither is anybody's mistake. The sandbox identifier changes — it changed between
 two sessions of work on this feature, `iifsolp0din8orm9w5hce` to `ipv1b4xm4krvvtj8q6qdo` — and

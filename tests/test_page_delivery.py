@@ -95,7 +95,7 @@ def test_the_client_is_what_decides_who_sees_the_studio():
     script redirects to the sign-in card when there is no token, and the console's script
     sends the token it holds rather than hoping for a cookie."""
     studio = (static / "app.js").read_text(encoding="utf-8")
-    assert "location.replace('/?signin=1')" in studio, \
+    assert "location.replace('/?signin=1'" in studio, \
         "a signed-out visitor would see the studio shell and no way to sign in"
     assert "localStorage.getItem('eidomira_access_token')" in studio
 

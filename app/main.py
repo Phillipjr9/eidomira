@@ -20,7 +20,7 @@ from app.mailer import send_verification
 from app.billing import PLAN, TOOLS, create_trial, account as billing_account, quote as billing_quote
 from app.paystack import checkout as paystack_checkout, verify_transaction as paystack_verify, valid_signature as paystack_valid_signature, process_webhook as paystack_process_webhook
 from app.limits import limiter, rate_limit_middleware
-from app.observability import metrics_middleware, ACTIVE_SESSIONS, ACTIVE_PEERS
+from app.observability import metrics_middleware, auth_diagnostics_middleware, ACTIVE_SESSIONS, ACTIVE_PEERS
 from app.headers import security_headers_middleware
 import json, time, uuid
 from app.engines import create_engine
@@ -40,6 +40,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 app.middleware("http")(metrics_middleware)
+app.middleware("http")(auth_diagnostics_middleware)
 app.middleware("http")(rate_limit_middleware)
 app.middleware("http")(security_headers_middleware)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
