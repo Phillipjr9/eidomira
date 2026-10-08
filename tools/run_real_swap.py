@@ -171,21 +171,12 @@ def main():
         return 1
     print(f"Target face: {dst_path.name} (bbox={[int(x) for x in best_dst.bbox]})")
 
-    print(f"Running neural face swap with GFPGAN restoration ({src_path.name} -> {dst_path.name})…")
+    print(f"Running genuine native InsightFace face swap ({src_path.name} -> {dst_path.name})…")
     t0 = time.perf_counter()
-    # Bypass double-exposure compositor and secondary tone transfer for clean commercial swap
-    engine.compositor = None
-    result = engine.process(
-        dst_rgb, best_src, verified=True,
-        overrides={
-            "tone_transfer_strength": 0.0,
-            "parser_feather": 0.0,
-            "restoration_visibility": 1.0,
-        }
-    )
+    dst_bgr = cv2.imread(str(dst_path))
+    out_bgr = engine.swapper.get(dst_bgr, best_dst, best_src, paste_back=True)
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
-    out_bgr = cv2.cvtColor(result.image, cv2.COLOR_RGB2BGR)
     cv2.imwrite(str(options.output), out_bgr)
     # Also save to current directory and parent directory so IPython display never fails
     cv2.imwrite("swapped_result.jpg", out_bgr)
