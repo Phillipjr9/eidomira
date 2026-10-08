@@ -113,9 +113,53 @@ forgeable signing key in place. The tool writes it; the manual path is
    loopback hides every NAT and firewall problem there is.
 4. Only then decide between keeping a VM warm and moving the batch tools to serverless.
 
+## Where to sign up
+
+The live studio is one self-contained box: `PeerRegistry` and `SessionStore` are **in-process**
+and `max_active_peers` is **4 per process**, so the application is written for a single
+instance. Splitting layers buys nothing until that state moves to Redis.
+
+### The live studio — a dedicated GPU box with a raw public IP
+
+| provider | what you get | price | why it fits |
+|---|---|---|---|
+| **Hetzner GEX44** — *the default* | RTX 4000 SFF Ada 20 GB, 64 GB RAM, 2×1.92 TB NVMe, **1 Gbit/s unlimited traffic**, Falkenstein/Nuremberg | **€184/mo** (~$211) + €79 setup | a dedicated machine with a real public IP and UDP, flat price, no egress bill. ~70–110 ms from Lagos. 20 GB of VRAM is comfortable: inswapper 4 GB + parser ~1 GB + GFPGAN ~2 GB |
+| Hetzner GEX131 | RTX PRO 6000 Blackwell 96 GB, 256 GB RAM | €889/mo | only when one GPU stops being enough |
+| Lambda · `gpu_1x_a10` | A10 24 GB, hourly | ≈$440/mo always-on | hourly is the right shape for the **validation hour**, and for demo days |
+| Verda (ex-DataCrunch) · Hyperstack | A10/L40S/A100, hourly, public IPs | ≈$1–2.50/hr | neoclouds with self-service GPUs and real public IPs |
+| GCP `g2-standard-4` · AWS `g5.xlarge` | L4 24 GB · A10G 24 GB | ≈$516/mo · ≈$734/mo | works, costs more, and egress is metered |
+
+**Bandwidth is not the constraint** — and it is worth doing the sum, because it decides the
+egress question. The adaptive controller caps the published frame at 960 px wide
+(`app/adaptive.py`); with no explicit bitrate set, aiortc's encoder targets roughly 1.5–2.5
+Mbps for that. At ~2 Mbps a session moves about 0.9 GB per hour, so four concurrent sessions
+need ~16 Mbps — nothing — and Hetzner's flat unlimited gigabit removes the variable entirely.
+On a metered host the same 100 hours of live sessions is ~100 GB, ≈$9 at AWS's $0.09/GB. Real,
+but not existential; the flat rate is simply one less thing to watch.
+
+### The batch tools, later
+
+`face_swap_hd`, `lip_sync_hd` and `talking_avatar_hd` are request/response jobs, so they belong
+on a serverless GPU once their routes exist (see the stages table above) — and they can share
+the same `licensed-models` volume baked into an image.
+
+### What to buy in what order
+
+1. **Domain** — anywhere, ~$10/yr. TLS is free: Caddy gets it automatically from the
+   `Caddyfile` `tools/deploy_vm.py` writes.
+2. **One hourly GPU VM** (Lambda, Verda, Hyperstack, or a hyperscaler) for the licence-check
+   hour in `docs/swap-requirements.md` §2. A few dollars.
+3. **Hetzner GEX44** once a real user is going to use it. €184/mo flat, and it is the cheapest
+   way to keep a live product online — compare $5,687/mo for a warm H100 pair or $4,020/mo for
+   an always-on A100 on a hyperscaler.
+
 ## What not to do
 
 * **Do not put the live studio on RunPod Pods.** UDP is unsupported there, in their words.
+* **Do not use Vast.ai for live sessions.** Its instances share public IPs with port mapping;
+  a shared address cannot carry our ephemeral UDP socket. Cheap, and wrong for this.
+* **Do not deploy to a PaaS** (Vercel, Render, Railway, Fly). None carries raw inbound UDP, and
+  the in-process session state means a second instance would not share sessions anyway.
 * **Do not put it on a serverless platform** and hope the WebRTC handshake is enough; the
   handshake is TCP and the media is not.
 * **Do not buy an always-on A100 for a product with no live traffic yet.** At demo volume the
