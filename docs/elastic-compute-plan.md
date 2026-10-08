@@ -153,6 +153,54 @@ the same `licensed-models` volume baked into an image.
    way to keep a live product online — compare $5,687/mo for a warm H100 pair or $4,020/mo for
    an always-on A100 on a hyperscaler.
 
+## The free trial path — nothing paid until a real user shows up
+
+Rent nothing. Two free routes cover the whole product, and they are different routes because the
+two halves need different things.
+
+### The website — Oracle Cloud Always Free
+
+| what | detail |
+|---|---|
+| compute | **2 Arm OCPUs, 12 GB RAM**, always free (Oracle halved this from 4/24 in June 2026; most write-ups still quote the old figure) |
+| storage / transfer | 200 GB block storage, **10 TB/month outbound** |
+| network | a **real public IP**, so UDP works — unlike Vast.ai, unlike any PaaS |
+| runs what | `docker compose up` as written; the whole site, sign-in, dashboard, credits, and the **on-device camera demo** |
+| card | required for identity verification, never charged on Always Free |
+| the catches | Arm capacity is often "out of capacity" — try Frankfurt or Singapore; idle instances can be reclaimed; support is forum-only |
+
+Our dependencies all have `aarch64` wheels (checked against PyPI: `numpy`, `av`, `pylibsrtp`,
+`opencv-python-headless`, `argon2-cffi-bindings`; `aiortc` is pure Python), so Arm is not a
+problem for this stack.
+
+**What it cannot do is the live GPU swap.** No free tier anywhere includes an always-on GPU —
+Oracle's own docs say GPU shapes are paid-only. On 2 Arm cores the neural engine would fall
+back to CPU and be unusably slow. That is fine: the public thing that impresses a visitor is
+the on-device demo, which runs in their browser and needs no server GPU at all.
+
+### The GPU hour — Google Cloud's $300 trial
+
+`$300` for 90 days, card at signup, never charged while the credit lasts. That is roughly
+**100+ hours of T4-class GPU time**, which is more than enough for the validation in
+`docs/swap-requirements.md` and for demoing a real live swap. Upgrade the billing account to the
+paid tier to unlock GPU quotas — the credit still pays first, so it stays free.
+
+Azure's equivalent is `$200` for 30 days. Google's is the longer runway.
+
+### And right now, for nothing at all
+
+The Arena sandbox preview already runs the full site with the demo accounts. It is the same
+`docker compose` deployment concept on a CPU box, and it has been the fast way to show every
+change in this project.
+
+### Summary
+
+| phase | where | cost |
+|---|---|---|
+| show the site to anyone, today | Oracle Always Free (or the sandbox preview) | **€0** |
+| validate the neural stack once licensed | Google Cloud trial credit | **$0** from the $300 |
+| a real user using it daily | Hetzner GEX44 | €184/mo |
+
 ## What not to do
 
 * **Do not put the live studio on RunPod Pods.** UDP is unsupported there, in their words.
