@@ -49,7 +49,8 @@ def download_model(destination: Path):
         return
     print(f"Downloading real neural swap weights from {MODEL_URL}…")
     partial = destination.with_suffix(".part")
-    with urllib.request.urlopen(MODEL_URL, timeout=300) as response, partial.open("wb") as handle:
+    req = urllib.request.Request(MODEL_URL, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+    with urllib.request.urlopen(req, timeout=300) as response, partial.open("wb") as handle:
         total = int(response.headers.get("Content-Length", 0))
         downloaded = 0
         last_pct = 0
