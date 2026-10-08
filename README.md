@@ -182,6 +182,29 @@ docker compose up --build
 
 InsightFace code and pretrained weights have different licenses. Pretrained InSwapper weights are non-commercial unless separately licensed by their owner. Confirm licensing before deployment.
 
+`tools/fetch_models.py` fetches the three artefacts the stack wants and will **not** download
+the non-commercial swap weights without an explicit `--accept-licence`; it records a sha256 per
+file on the first fetch and refuses a source that later returns different bytes. The parser and
+the restorer (OpenRAIL-AS and Apache-2.0 respectively) need no such permission. What each one
+is, what it costs, what the host needs and the order to do it in:
+[`docs/swap-requirements.md`](docs/swap-requirements.md), and the licence request itself is
+drafted in [`docs/insightface-licence-request.md`](docs/insightface-licence-request.md).
+
+Before any of that is bought, the neural path can be exercised with stand-in graphs:
+
+```bash
+pip install -r requirements-neural.txt
+python -m tools.stand_in_models --directory models/standin
+python -m pytest tests/test_neural_path.py -q
+```
+
+`tools/stand_in_models.py` writes ONNX graphs with the exact shapes, names and input order the
+adapters require — no trained weights and no quality claim. They prove the plumbing executes:
+the compositor builds a mask and leaves its occluders alone, the restorer enhances without
+faulting, and the boost interleaves real inference passes onto one canvas. `tests/test_neural_path.py`
+asserts exactly that, including that pixels the mask leaves at zero survive the blend byte for
+byte.
+
 ### Execution providers
 
 The adapter does not assume CUDA. At startup `app/providers.py` asks ONNX Runtime

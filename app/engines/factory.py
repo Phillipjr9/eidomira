@@ -2,9 +2,15 @@ from .diagnostic import DiagnosticEngine
 from .inswapper import InSwapperEngine
 from app.config import settings
 
+#: The `STUDIO_BACKEND` value that selects the neural engine. Exported because it is written in
+#: documentation, compose files and tools, and a near miss — `insightface`, say — does not fail:
+#: `create_engine` falls through to the diagnostic engine, and a host that meant to run the
+#: neural stack quietly does not. That is the worst shape a configuration mistake can have.
+INSWAPPER_BACKEND = "inswapper"
+
 
 def create_engine():
-    if settings.backend == "inswapper":
+    if settings.backend == INSWAPPER_BACKEND:
         if not settings.model_path.exists():
             raise RuntimeError(f"Licensed model is missing: {settings.model_path}")
         return InSwapperEngine(str(settings.model_path), settings.verification_threshold)
