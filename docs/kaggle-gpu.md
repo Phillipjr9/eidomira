@@ -44,11 +44,9 @@ if os.path.basename(os.getcwd()) != "eidomira":
 ```python
 # Cell 2 — a GPU build of ONNX Runtime and insightface for the swap model.
 # Kaggle runs CUDA 12, so install onnxruntime-gpu==1.26.0 (CUDA 12 build) and cu12 libraries.
-!pip install -q insightface onnx
-!pip uninstall -y -q onnxruntime
 !pip install -q --force-reinstall onnxruntime-gpu==1.26.0
-!pip install -q nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12 nvidia-cufft-cu12
-!python -c "import cv2" || python -m pip install -q --force-reinstall opencv-python-headless
+!pip install -q nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 onnx opencv-python-headless scipy scikit-image tqdm requests
+!pip install -q --no-deps insightface
 !python -c "import onnxruntime as o; print('Providers:', o.get_available_providers())"
 ```
 
