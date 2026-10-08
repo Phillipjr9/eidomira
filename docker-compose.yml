@@ -17,19 +17,38 @@ services:
     # landing page, the on-device demo and the studio UI are happy anywhere. This file is the
     # GPU deployment, so it takes the network the GPU deployment needs.
     network_mode: host
+    # Every value below comes from `.env`, which `python -m tools.deploy_vm` writes, and each
+    # has the default it would have had anyway. Compose does not pass the rest of a .env into
+    # a container on its own — only what is listed here — so this list is the interface
+    # between the tool and the process.
     environment:
-      STUDIO_BACKEND: inswapper
+      STUDIO_BACKEND: ${STUDIO_BACKEND:-inswapper}
+      STUDIO_MODEL_PATH: ${STUDIO_MODEL_PATH:-/models/inswapper_128.onnx}
+      STUDIO_PARSER_MODEL_PATH: ${STUDIO_PARSER_MODEL_PATH:-/models/face_parser.onnx}
+      STUDIO_RESTORATION_MODEL_PATH: ${STUDIO_RESTORATION_MODEL_PATH:-/models/gfpgan_1.4.onnx}
+      # The address a verification link points at, and whether cookies are marked secure.
+      STUDIO_PUBLIC_URL: ${STUDIO_PUBLIC_URL:-http://127.0.0.1:8000}
+      # Which browsers may call the API. A public origin that is missing here produces CORS
+      # failures that look like an outage.
+      STUDIO_ALLOWED_ORIGINS: ${STUDIO_ALLOWED_ORIGINS:-http://127.0.0.1:8000}
+      # Fail closed, deliberately: compose refuses to start the GPU deployment without a real
+      # signing key, because the shipped default is in this repository and anyone who has read
+      # it can mint a session for any account. Generate one with
+      #   python -c "import secrets; print(secrets.token_urlsafe(48))"
+      # or let `python -m tools.deploy_vm` write it into .env for you.
+      STUDIO_AUTH_SECRET: ${STUDIO_AUTH_SECRET:?set STUDIO_AUTH_SECRET in .env — the shipped default is forgeable, see docs/elastic-compute-plan.md}
+      # A TURN server, once one exists. Without it a viewer behind a symmetric NAT connects
+      # the signaling and receives no media.
+      STUDIO_TURN_URLS: ${STUDIO_TURN_URLS:-}
+      STUDIO_TURN_SECRET: ${STUDIO_TURN_SECRET:-}
       # Trust X-Forwarded-For only from your proxy, and only if you run one in front of
       # this service. Left at uvicorn's loopback default behind a proxy, every caller
       # shares one rate-limit bucket — the whole deployment gets 120 requests/minute and
       # one client can lock out sign-in for everyone. The app logs a warning at startup
-      # when PUBLIC_URL is https and only loopback is trusted.
-      # FORWARDED_ALLOW_IPS: "172.16.0.0/12"
-      STUDIO_MODEL_PATH: /models/inswapper_128.onnx
-      STUDIO_PARSER_MODEL_PATH: /models/face_parser.onnx
-      STUDIO_RESTORATION_MODEL_PATH: /models/gfpgan_1.4.onnx
-      # The address a verification link points at, and whether cookies are marked secure.
-      STUDIO_PUBLIC_URL: ${STUDIO_PUBLIC_URL:-http://127.0.0.1:8000}
+      # when PUBLIC_URL is https and only loopback is trusted. Caddy on this host arrives
+      # on loopback, which is already trusted, so the default suits the layout in
+      # docker-compose.tls.yml.
+      # FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
     volumes:
       - ./licensed-models:/models:ro
     deploy:

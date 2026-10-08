@@ -210,7 +210,22 @@ python -m tools.udp_probe send --host <the host> --port 34789   # from anywhere 
 ```
 
 [`docs/elastic-compute-plan.md`](docs/elastic-compute-plan.md) has the options, the dated
-prices, the regions worth picking for a Lagos user base, and the order of operations.
+prices, the regions worth picking for a Lagos user base, and the order of operations. On the
+host itself it is one command:
+
+```bash
+python -m tools.deploy_vm --print --domain swap.example.com --tls   # plan only
+python -m tools.deploy_vm --domain swap.example.com --tls
+```
+
+It preflights (Docker, a GPU the daemon can see, the licensed models, a free port) and writes
+nothing until that passes; generates `.env` with a real 47-character `STUDIO_AUTH_SECRET` and
+never rewrites it; writes a `Caddyfile` and starts Caddy, because camera access needs https
+away from localhost; starts compose with host networking; then polls `/api/health` and
+**fails** if the engine is not `inswapper` or the provider is not accelerated — a CPU fallback
+runs fine and is many times too slow, which is the exact mistake worth catching. It never
+installs system packages: when Docker or the NVIDIA Container Toolkit is missing it names what
+to install and stops.
 
 `tools/stand_in_models.py` writes ONNX graphs with the exact shapes, names and input order the
 adapters require — no trained weights and no quality claim. They prove the plumbing executes:

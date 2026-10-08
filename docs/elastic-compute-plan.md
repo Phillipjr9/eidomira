@@ -64,21 +64,51 @@ that works, and it needs the VM.
 | EU — Paris, Frankfurt, Amsterdam | ~70–110 ms | the practical default: good latency, wide GPU stock |
 | US East | ~180–250 ms | works for upload jobs, poor for live conversation |
 
+## One command
+
+`tools/deploy_vm.py` does the whole of §"Order of operations" below, in the order that catches
+the expensive mistakes before they cost anything:
+
+```bash
+# on the fresh GPU host, from the repository root
+python -m tools.deploy_vm --print --domain swap.example.com --tls   # plan only, changes nothing
+python -m tools.deploy_vm --domain swap.example.com --tls
+```
+
+What it does, and what it refuses to do:
+
+| step | behaviour |
+|---|---|
+| preflight | Docker, a GPU the *daemon* can see (not just one `nvidia-smi` finds), the licensed models, a free port. **Nothing is written until this passes.** |
+| configure | writes `.env`: a generated `STUDIO_AUTH_SECRET` (47-char urlsafe), the public origin added to the allowed origins, the model paths. The secret is never rewritten on a re-run — that would sign every session out and look like a bug. |
+| TLS | writes a `Caddyfile` and starts Caddy from `docker-compose.tls.yml`, because camera access needs a secure context anywhere but localhost and the point of this host is a live test from a phone. |
+| start | `docker compose up -d --build`, with host networking (see `docker-compose.yml` for why that is a requirement, not a preference). |
+| verify | polls `/api/health` until the engine is `inswapper` **and** `accelerated: true`. A CPU fallback is a **failure** here, not a warning: the studio would run, look fine, and be many times too slow. |
+| prove | prints the real-device test, and optionally listens for the UDP probe while you run it from another machine. |
+
+It never installs system packages: Docker, the driver and the NVIDIA Container Toolkit are the
+host's business, and when one is missing it names what to install and stops. That is deliberate
+— a deploy script that edits a machine it does not understand is worse than no script.
+
+`docker-compose.yml` now requires `STUDIO_AUTH_SECRET` (`${STUDIO_AUTH_SECRET:?...}`), so
+compose refuses to start the GPU deployment with the shipped default key rather than leaving a
+forgeable signing key in place. The tool writes it; the manual path is
+`python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+
 ## Order of operations
 
 1. Buy the licence (`docs/insightface-licence-request.md`) — nothing else is worth buying first.
-2. Rent **one hour** of a UDP-capable GPU VM and run it:
+2. Rent **one hour** of a UDP-capable GPU VM, copy the licensed artefacts into
+   `licensed-models/`, and run one command:
 
    ```bash
-   python -m tools.udp_probe serve --port 34789 --seconds 60   # from elsewhere: --send
-   pip install -r requirements.txt -r requirements-neural.txt
-   docker compose up --build
-   curl -s localhost:8000/api/health          # backend: inswapper, accelerated: true
+   python -m tools.deploy_vm --domain swap.example.com --tls
    ```
 
-   The health line is the acceptance test: it reports the engine, the provider ONNX Runtime
-   resolved, and whether the host is accelerated — a host that quietly fell back to CPU says so
-   there rather than merely being slow.
+   The health line is the acceptance test, and the tool reads it rather than printing it: the
+   engine must be `inswapper` and the provider accelerated, or the deploy fails and says which
+   of the two is wrong. A host that quietly fell back to CPU is the failure this exists to
+   catch.
 3. Run a real live session from a phone on mobile data — not from the same machine, because
    loopback hides every NAT and firewall problem there is.
 4. Only then decide between keeping a VM warm and moving the batch tools to serverless.
