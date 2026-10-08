@@ -311,12 +311,12 @@ def main(argv: list[str] | None = None) -> int:
     for module, package in (("onnxruntime", "onnxruntime-gpu"), ("onnx", "onnx")):
         try:
             __import__(module)
-        except ImportError:
-            missing.append(package)
+        except ImportError as err:
+            missing.append(f"{package} ({err})")
     if missing:
         print("  this notebook is missing:", ", ".join(missing))
         print("\n  run this cell first:\n")
-        print(f"    !pip install -q {' '.join(missing)}")
+        print("    !pip install -q onnxruntime-gpu onnx")
         print("\n  on Kaggle, also check Settings -> Accelerator -> GPU, and Internet -> on.")
         return 2
 
