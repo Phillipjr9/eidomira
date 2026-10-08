@@ -660,6 +660,26 @@ someone who knows an address can deliberately trigger that lockout. The budget i
 before the password because that is the only ordering that slows guessing down. Raise
 `login_limit_per_hour` to trade protection for availability, or lower it to do the reverse.
 
+**The demo password does not move, and the card says it out loud.** It is the built-in
+`eidomira-demo-2026`, published by `/api/auth/methods` and shown on the card. Running a preview
+with `STUDIO_DEMO_PASSWORD` set changes it for that run — which is how a password that worked
+yesterday stops working today, and why a preview should use the published default. When a failed
+sign-in names a demo address, the card appends the actual password to the error instead of
+leaving "Invalid email or password" beside a page that is displaying one; that credential is
+already printed there, so saying it again exposes nothing. Next to it is a **Use this password**
+button that submits the published values directly, so nothing has to be typed, remembered, or
+autofilled from a previous session — a browser that saved an older password will keep offering
+it, and one click now overrules it.
+
+**A session the server cannot see is tried for, not ended.** The third report of the same
+symptom arrived with a different cause. The access log showed the studio leaving for
+`/?signin=1&ended=1` with **no 401 anywhere in it**: `/api/auth/me` answered 200, but as a
+*guest* — no credential reached the server even though the page was holding a token. From the
+client, "the credential is finished" and "the credential never arrived" are the same 200, so the
+only safe reading is the recoverable one: a "no session" answer triggers a restore and a second
+ask, and the session ends only if that second ask agrees. The page logs the case to the console,
+because it is the one failure here that is invisible from the browser.
+
 **Only a session failure may end a session, and it is asked first.** Three separate things used
 to sign people out, and all three were reported as one bug. The last of them was found by reading
 the access log of the browser that hit it: `/api/auth/me` answered 200, `/api/billing/account`
@@ -672,7 +692,11 @@ call whose job is to decide the session could not decide it (and the account chi
 a dead token. Now: a 401 buys a restore and a retry; if it survives that, the session endpoint is
 asked directly, and only its answer can end a session. If the server cannot be asked at all, the
 session stays, because "no answer" is not "signed out". `endSession()` is the single place a visit
-ends, it fires once, and it says why in the console. Type `await eidomiraSession()` in that
+ends, it fires once, and it says why in the console — and every refusal now says which kind
+it was: a 200 on `/api/auth/me` says whether it was the account or the guest record, a refusal
+on a token-carrying call says whether a credential arrived, and a refused sign-in says the email
+and password matched no account rather than the generic "no credential was sent", which was
+never true of a form whose credential is in the body. Type `await eidomiraSession()` in that
 page's console to see what the page believes: whether a token is held, when it expires, who the
 server says it belongs to, and whether the demo could restore one. On the server, every 401 on
 `/api/` now logs whether a credential was sent and refused, or whether none was sent — the
