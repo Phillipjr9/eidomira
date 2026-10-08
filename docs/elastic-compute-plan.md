@@ -180,12 +180,38 @@ the on-device demo, which runs in their browser and needs no server GPU at all.
 
 ### The GPU hour — Google Cloud's $300 trial
 
-`$300` for 90 days, card at signup, never charged while the credit lasts. That is roughly
-**100+ hours of T4-class GPU time**, which is more than enough for the validation in
-`docs/swap-requirements.md` and for demoing a real live swap. Upgrade the billing account to the
-paid tier to unlock GPU quotas — the credit still pays first, so it stays free.
+`$300` for 90 days, card at signup, and the credit pays before the card. Which GPU to ask for:
 
-Azure's equivalent is `$200` for 30 days. Google's is the longer runway.
+| machine type | GPU | VRAM | price (us-central1, on-demand) | hours on $300 |
+|---|---|---|---|---|
+| `n1-standard-4` + 1×T4 | **T4** | 16 GB | **≈$0.55/hr** all-in ($0.35 GPU + ~$0.19 VM) | **≈550** |
+| `g2-standard-4` | **L4** (Ada) | 24 GB | ≈$1.00/hr ($0.71 GPU + ~$0.28 VM) | ≈300 |
+| A2 `a2-highgpu-1g` | A100 40 GB | 40 GB | ≈$3.67/hr | ≈80 — not needed |
+
+**Pick the T4.** The VRAM math says 16 GB is enough with room to spare: inswapper 4 GB
+(fp16 2 GB) + `buffalo_l` ~1–2 GB + the parser ~1 GB + GFPGAN ~2 GB ≈ **8–9 GB peak**. The L4
+is the better GPU — newer, faster fp16, 24 GB — and worth it if you want headroom; at these
+prices the validation hour costs cents either way, so choose the T4 and stop thinking about it.
+
+**Two setup steps that block people, both easy to miss:**
+
+1. **Upgrade the billing account to the paid tier.** GPUs are not available on a trial-only
+   account. The $300 credit still pays first, so nothing is charged.
+2. **Request a GPU quota.** New accounts start at **0 GPUs** — the VM will refuse to start until
+   you ask for a quota increase (1 GPU, in the region you chose). Approval is usually quick.
+
+**Region, for a Lagos user:** `europe-west1` (Belgium) or `europe-west4` (Netherlands) at
+~70–110 ms; `africa-south1` (Johannesburg) if the GPU you want is in stock there. T4 stock
+varies by region, so if `us-central1` is full, try the European ones.
+
+Azure's equivalent is `$200` for 30 days, with `NCasT4_v3` (T4 16 GB) or `NVadsA10_v5` (A10).
+Google's is the longer runway.
+
+**Free notebooks are not an option, and it is worth saying why.** Colab and Kaggle hand out
+free T4s, and neither can run this: they are notebooks, not servers — no inbound UDP, no
+persistent process, no public IP a browser can open a WebRTC connection to. Modal's $30/month
+free credit is real but it is HTTP request/response, so it is for the batch upload tools once
+those routes exist, not for the live studio.
 
 ### And right now, for nothing at all
 
