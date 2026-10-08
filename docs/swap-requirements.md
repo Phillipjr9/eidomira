@@ -120,6 +120,16 @@ says which of them the running process actually has.
 
 ## 3. A host with a GPU
 
+**Read `docs/elastic-compute-plan.md` for the decision.** The short of it: the server is a
+WebRTC peer (`app/rtc.py`, aiortc) and the media is SRTP over **UDP**, and `aiortc` binds an
+ephemeral port with no way to pin it. So the host must be a plain virtual machine with inbound
+UDP — not a serverless function, and not RunPod Pods, whose documentation says *"Pods do not
+support UDP connections"* and *"Docker Compose is not supported"*. Verify any candidate in one
+minute with `python -m tools.udp_probe` before paying for it.
+
+The prices below are for capacity and cost, not for suitability — all of them assume the UDP
+requirement is satisfied.
+
 This sandbox is 2 cores, 3 GB, **no GPU** — the diagnostic engine, and a CPU path at best.
 Live swap needs acceleration. Prices below were gathered on **2026-10-07** and move; treat
 them as shape, not quote.
@@ -131,9 +141,12 @@ them as shape, not quote.
 | RunPod pod A100 80 GB / H100 PCIe | $1.39 / $2.89 per hour | serverless A100 $2.72 |
 | always-on A100 | ≈$4,020 per month | only worth it above ≈73% utilization |
 
-VRAM: `inswapper_128` 4 GB (2 GB fp16), `simswap_512` 10 GB. At current volume **scale-to-zero
+VRAM: `inswapper_128` 4 GB (2 GB fp16), `simswap_512` 10 GB. At current volume **an hourly VM started for demo hours
 beats an always-on pod by a wide margin** — a `keep_warm=2` H100 pair is ≈$5,687/month against
-≈$165 of real inference.
+≈$165 of real inference. Scale-to-zero is the right shape for the upload tools
+(`face_swap_hd`, `lip_sync_hd`, `talking_avatar_hd`) once those routes exist; they are priced
+in `app/billing.py` today and have none, so a serverless platform bought now would serve
+nothing.
 
 `app/providers.py` detects TensorRT, CUDA, ROCm, MIGraphX, DirectML, CoreML, OpenVINO or CPU
 and orders by expected throughput, always keeping a CPU path last. TensorRT is opt-in

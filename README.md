@@ -198,6 +198,20 @@ python -m tools.stand_in_models --directory models/standin
 python -m pytest tests/test_neural_path.py -q
 ```
 
+**Where to run it** is a decision with a hard constraint in it: the server is a WebRTC peer
+(`app/rtc.py`, aiortc) and the media is SRTP over **UDP**, on an ephemeral port aiortc does not
+let you pin — so the host has to be a plain VM with inbound UDP, not a serverless function and
+not RunPod Pods (their docs: *"Pods do not support UDP connections"*). `docker-compose.yml`
+therefore uses host networking. Verify any candidate host in one minute before paying for it:
+
+```bash
+python -m tools.udp_probe serve --port 34789 --seconds 60   # on the host
+python -m tools.udp_probe send --host <the host> --port 34789   # from anywhere else
+```
+
+[`docs/elastic-compute-plan.md`](docs/elastic-compute-plan.md) has the options, the dated
+prices, the regions worth picking for a Lagos user base, and the order of operations.
+
 `tools/stand_in_models.py` writes ONNX graphs with the exact shapes, names and input order the
 adapters require — no trained weights and no quality claim. They prove the plumbing executes:
 the compositor builds a mask and leaves its occluders alone, the restorer enhances without

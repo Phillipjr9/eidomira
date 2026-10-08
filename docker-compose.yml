@@ -1,7 +1,22 @@
 services:
   studio:
     build: .
-    ports: ["8000:8000"]
+    # Host networking, and the reason is not a preference.
+    #
+    # The live path is WebRTC: this process is one of the two peers (`app/rtc.py`, aiortc),
+    # and the media between it and the browser is SRTP over UDP. A host that forwards only
+    # TCP cannot carry that — signaling connects, media never arrives, and the page looks
+    # broken rather than firewalled. A `ports:` mapping cannot fix it either, because aiortc
+    # binds an *ephemeral* UDP port: there is no port-range setting in its public API, so no
+    # fixed mapping can cover it. With host networking the socket lands on the host directly
+    # and the host's firewall is the only thing that has to allow the ephemeral range
+    # (32768-60999 on Linux by default; narrow `net.ipv4.ip_local_port_range` if you need a
+    # tight rule, or put coturn in front and set STUDIO_TURN_URLS / STUDIO_TURN_SECRET).
+    #
+    # Everything except the live media works fine behind a TCP proxy, which is why the
+    # landing page, the on-device demo and the studio UI are happy anywhere. This file is the
+    # GPU deployment, so it takes the network the GPU deployment needs.
+    network_mode: host
     environment:
       STUDIO_BACKEND: inswapper
       # Trust X-Forwarded-For only from your proxy, and only if you run one in front of
@@ -12,6 +27,9 @@ services:
       # FORWARDED_ALLOW_IPS: "172.16.0.0/12"
       STUDIO_MODEL_PATH: /models/inswapper_128.onnx
       STUDIO_PARSER_MODEL_PATH: /models/face_parser.onnx
+      STUDIO_RESTORATION_MODEL_PATH: /models/gfpgan_1.4.onnx
+      # The address a verification link points at, and whether cookies are marked secure.
+      STUDIO_PUBLIC_URL: ${STUDIO_PUBLIC_URL:-http://127.0.0.1:8000}
     volumes:
       - ./licensed-models:/models:ro
     deploy:
