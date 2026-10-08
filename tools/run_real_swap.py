@@ -110,6 +110,17 @@ def main():
     except Exception as e:
         print(f"Note: restorer download skipped ({e})")
 
+    # Link models so relative paths always resolve
+    try:
+        import os, shutil
+        os.makedirs("/kaggle/working/models", exist_ok=True)
+        if parser_path.exists() and not Path("/kaggle/working/models/face_parser.onnx").exists():
+            shutil.copyfile(str(parser_path), "/kaggle/working/models/face_parser.onnx")
+        if restorer_path.exists() and not Path("/kaggle/working/models/gfpgan_1.4.onnx").exists():
+            shutil.copyfile(str(restorer_path), "/kaggle/working/models/gfpgan_1.4.onnx")
+    except Exception:
+        pass
+
     import cv2
     from app.engines.inswapper import InSwapperEngine
 
@@ -118,6 +129,8 @@ def main():
     engine = InSwapperEngine(str(options.model), threshold=0.34)
     print(f"Engine initialized in {(time.perf_counter() - started) * 1000:.1f} ms")
     print(f"Provider in use: {engine.provider} (accelerated: {engine.accelerated})")
+    print(f"Compositor (BiSeNet): {'ACTIVE' if engine.compositor is not None else 'DISABLED'}")
+    print(f"Restorer (GFPGAN):   {'ACTIVE' if engine.restorer is not None else 'DISABLED'}")
 
     def find_face_image(candidates):
         for path in candidates:
@@ -160,9 +173,16 @@ def main():
         return 1
     print(f"Target face: {dst_path.name} (bbox={[int(x) for x in best_dst.bbox]})")
 
-    print(f"Running neural face swap ({src_path.name} -> {dst_path.name})…")
+    print(f"Running neural face swap with GFPGAN & BiSeNet ({src_path.name} -> {dst_path.name})…")
     t0 = time.perf_counter()
-    result = engine.process(dst_rgb, best_src, verified=True)
+    result = engine.process(
+        dst_rgb, best_src, verified=True,
+        overrides={
+            "tone_transfer_strength": 0.45,
+            "parser_feather": 0.55,
+            "restoration_visibility": 1.0,
+        }
+    )
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
     out_bgr = cv2.cvtColor(result.image, cv2.COLOR_RGB2BGR)

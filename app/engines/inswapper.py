@@ -62,18 +62,21 @@ class InSwapperEngine(FaceSwapEngine):
                               det_size=(640, 640))
         self.swapper = insightface.model_zoo.get_model(model_path, providers=self.providers)
         self.compositor = None
-        if settings.parser_model_path.exists():
-            self.compositor = SemanticCompositor(
-                str(settings.parser_model_path), settings.parser_feather,
-                settings.parser_include_ears,
-            )
-        # Optional: without a model the swap is simply softer, which is the honest
-        # behaviour rather than a startup failure.
+        for p in [settings.parser_model_path, Path("models/face_parser.onnx"), Path("/kaggle/working/eidomira/models/face_parser.onnx"), Path(__file__).resolve().parent.parent.parent / "models" / "face_parser.onnx"]:
+            if Path(p).exists():
+                self.compositor = SemanticCompositor(
+                    str(p), settings.parser_feather,
+                    settings.parser_include_ears,
+                )
+                break
+
         self.restorer = None
-        if settings.restoration_model_path.exists():
-            self.restorer = FaceRestorer(
-                str(settings.restoration_model_path), settings.restoration_visibility,
-            )
+        for r in [settings.restoration_model_path, Path("models/gfpgan_1.4.onnx"), Path("/kaggle/working/eidomira/models/gfpgan_1.4.onnx"), Path(__file__).resolve().parent.parent.parent / "models" / "gfpgan_1.4.onnx"]:
+            if Path(r).exists():
+                self.restorer = FaceRestorer(
+                    str(r), settings.restoration_visibility,
+                )
+                break
         self._boost_disabled = False
 
     def _faces(self, rgb):
