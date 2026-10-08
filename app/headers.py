@@ -34,10 +34,11 @@ async def security_headers_middleware(request: Request, call_next):
     embeddable = _is_embeddable(request.url.path)
     ancestors = _configured_ancestors()
     frame_policy = "*" if embeddable else (ancestors or "'self'")
+    permissions_policy = "camera=*, microphone=*, fullscreen=*" if (embeddable or ancestors) else "camera=(self), microphone=(self), fullscreen=(self)"
     response.headers.update({
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "strict-origin-when-cross-origin",
-        "Permissions-Policy": "camera=(self), microphone=(self), fullscreen=(self)",
+        "Permissions-Policy": permissions_policy,
         "Cross-Origin-Opener-Policy": "same-origin",
         "Content-Security-Policy": (
             "default-src 'self'; "
