@@ -273,7 +273,7 @@ def measure(models: Path, source=None) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--models", type=Path, default=Path("models/standin"),
+    parser.add_argument("--models", type=Path, default=ROOT / "models" / "standin",
                         help="directory holding the three ONNX files (default: build stand-ins)")
     parser.add_argument("--photo", type=Path, default=None,
                         help="an image to measure with instead of the synthetic frame")
