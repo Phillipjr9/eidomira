@@ -32,8 +32,13 @@ looks like a missing option rather than a locked one.
 # Cell 1 — the code. The default branch is not where the work is, so name the branch.
 BRANCH = "arena/178efbef-eidomira"
 !nvidia-smi -L
-!git clone -q -b {BRANCH} https://github.com/Phillipjr9/eidomira.git
-%cd eidomira
+import os
+if not os.path.exists("eidomira") and os.path.basename(os.getcwd()) != "eidomira":
+    !git clone -q -b {BRANCH} https://github.com/Phillipjr9/eidomira.git
+if os.path.basename(os.getcwd()) != "eidomira":
+    %cd eidomira
+!git fetch -q origin {BRANCH} && git reset -q --hard origin/{BRANCH}
+!git log --oneline -1
 ```
 
 ```python
