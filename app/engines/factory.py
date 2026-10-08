@@ -1,6 +1,14 @@
+from pathlib import Path
 from .diagnostic import DiagnosticEngine
 from .inswapper import InSwapperEngine
-from app.config import settings
+try:
+    from app.config import settings
+except ImportError:
+    class _SettingsFallback:
+        backend = "diagnostic"
+        model_path = Path("models/inswapper_128.onnx")
+        verification_threshold = 0.34
+    settings = _SettingsFallback()
 
 #: The `STUDIO_BACKEND` value that selects the neural engine. Exported because it is written in
 #: documentation, compose files and tools, and a near miss — `insightface`, say — does not fail:

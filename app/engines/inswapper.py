@@ -1,11 +1,23 @@
 from __future__ import annotations
 import logging
 import time
+from pathlib import Path
 import cv2
 import numpy as np
 from .base import Enrollment, FaceSwapEngine, FrameResult
 from app.providers import describe_providers, execution_providers
-from app.config import settings
+try:
+    from app.config import settings
+except ImportError:
+    class _SettingsFallback:
+        parser_model_path = Path("models/face_parser.onnx")
+        parser_feather = 0.035
+        parser_include_ears = True
+        restoration_model_path = Path("models/gfpgan_1.4.onnx")
+        restoration_visibility = 0.75
+        tone_transfer_strength = 1.0
+        swap_pixel_boost = 1
+    settings = _SettingsFallback()
 from app.compositor import SemanticCompositor
 from app.enhance import FaceRestorer, transfer_tone
 
