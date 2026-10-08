@@ -62,6 +62,7 @@ class InSwapperEngine(FaceSwapEngine):
             self.restorer = FaceRestorer(
                 str(settings.restoration_model_path), settings.restoration_visibility,
             )
+        self._boost_disabled = False
 
     def _faces(self, rgb):
         bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
