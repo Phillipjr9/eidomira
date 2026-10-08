@@ -90,6 +90,10 @@ def main():
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "insightface"], check=True)
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "requests", "tqdm", "scikit-image", "scipy", "opencv-python-headless"], check=False)
 
+    alt_model = Path("/kaggle/working/inswapper_128.onnx")
+    if not options.model.exists() and alt_model.exists() and alt_model.stat().st_size > 100_000_000:
+        options.model = alt_model
+
     if not options.model.exists() or options.model.stat().st_size < 100_000_000:
         download_file(MODEL_URL, options.model, "InSwapper 128 Model")
 
@@ -114,28 +118,48 @@ def main():
     print(f"Engine initialized in {(time.perf_counter() - started) * 1000:.1f} ms")
     print(f"Provider in use: {engine.provider} (accelerated: {engine.accelerated})")
 
-    if not options.source.exists() or not options.target.exists():
-        print(f"Error: source ({options.source}) or target ({options.target}) not found.")
+    def find_face_image(candidates):
+        for path in candidates:
+            if not path.exists():
+                continue
+            bgr = cv2.imread(str(path))
+            if bgr is None:
+                continue
+            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            faces = engine._faces(rgb)
+            if not faces:
+                engine.analyzer.prepare(ctx_id=0 if "CUDAExecutionProvider" in engine.providers else -1, det_size=(640, 640), det_thresh=0.2)
+                faces = engine._faces(rgb)
+            if faces:
+                best = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0]) * (f.bbox[3]-f.bbox[1]))
+                return path, rgb, best
+        return None, None, None
+
+    all_portraits = [
+        options.source,
+        ROOT / "static" / "persona-02.jpg",
+        ROOT / "static" / "persona-03.jpg",
+        ROOT / "static" / "persona-04.jpg",
+        ROOT / "static" / "hero-identity.jpg",
+        ROOT / "static" / "persona-01.jpg",
+    ]
+
+    print("Detecting and selecting source identity…")
+    src_path, src_rgb, best_src = find_face_image(all_portraits)
+    if best_src is None:
+        print("Error: could not find face in any sample image.")
         return 1
+    print(f"Source face: {src_path.name} (bbox={[int(x) for x in best_src.bbox]})")
 
-    src_bgr = cv2.imread(str(options.source))
-    dst_bgr = cv2.imread(str(options.target))
-    src_rgb = cv2.cvtColor(src_bgr, cv2.COLOR_BGR2RGB)
-    dst_rgb = cv2.cvtColor(dst_bgr, cv2.COLOR_BGR2RGB)
-
-    print("Detecting and enrolling source identity…")
-    faces = engine._faces(src_rgb)
-    if not faces:
-        print("Retrying detection with lower threshold…")
-        engine.analyzer.prepare(ctx_id=0 if "CUDAExecutionProvider" in engine.providers else -1, det_size=(640, 640), det_thresh=0.2)
-        faces = engine._faces(src_rgb)
-    if not faces:
-        print(f"Error: no face detected in source {options.source}")
+    print("Detecting target portrait…")
+    remaining = [p for p in all_portraits if p != src_path]
+    dst_path, dst_rgb, best_dst = find_face_image(remaining)
+    if best_dst is None:
+        print("Error: could not find target face.")
         return 1
-    best_src = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0]) * (f.bbox[3]-f.bbox[1]))
-    print(f"Source face detected: bbox={[int(x) for x in best_src.bbox]}")
+    print(f"Target face: {dst_path.name} (bbox={[int(x) for x in best_dst.bbox]})")
 
-    print("Running neural face swap onto target portrait…")
+    print(f"Running neural face swap ({src_path.name} -> {dst_path.name})…")
     t0 = time.perf_counter()
     result = engine.process(dst_rgb, best_src, verified=True)
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
