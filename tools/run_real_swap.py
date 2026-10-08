@@ -15,6 +15,7 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -174,7 +175,49 @@ def main():
     print(f"Running genuine native InsightFace face swap ({src_path.name} -> {dst_path.name})…")
     t0 = time.perf_counter()
     dst_bgr = cv2.imread(str(dst_path))
-    out_bgr = engine.swapper.get(dst_bgr, best_dst, best_src, paste_back=True)
+    swapped_bgr = engine.swapper.get(dst_bgr, best_dst, best_src, paste_back=True)
+
+    # State-of-the-art Canonical FFHQ-512 Landmark-Aligned GFPGAN Restoration
+    restorer_path = ROOT / "models" / "gfpgan_1.4.onnx"
+    if not restorer_path.exists() and Path("/kaggle/working/eidomira/models/gfpgan_1.4.onnx").exists():
+        restorer_path = Path("/kaggle/working/eidomira/models/gfpgan_1.4.onnx")
+
+    if restorer_path.exists():
+        print("Applying canonical landmark-aligned GFPGAN v1.4 HD detail restoration…")
+        import onnxruntime as ort
+        FFHQ_512 = np.array([
+            [192.98138, 239.94708],
+            [318.90277, 240.3436],
+            [256.03415, 314.01935],
+            [201.26117, 371.41043],
+            [313.08905, 371.15118]
+        ], dtype=np.float32)
+
+        M, _ = cv2.estimateAffinePartial2D(best_dst.kps, FFHQ_512)
+        aligned_512 = cv2.warpAffine(swapped_bgr, M, (512, 512), borderMode=cv2.BORDER_REPLICATE)
+
+        tensor = ((aligned_512[:, :, ::-1].astype(np.float32) / 255.0) - 0.5) / 0.5
+        tensor = np.transpose(tensor, (2, 0, 1))[None]
+
+        session = ort.InferenceSession(str(restorer_path), providers=engine.providers)
+        input_name = session.get_inputs()[0].name
+        raw = session.run(None, {input_name: tensor})[0]
+
+        restored = np.squeeze(raw).transpose(1, 2, 0)
+        restored = np.clip((restored * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)[:, :, ::-1]
+
+        M_inv = cv2.invertAffineTransform(M)
+        restored_back = cv2.warpAffine(restored, M_inv, (dst_bgr.shape[1], dst_bgr.shape[0]), borderMode=cv2.BORDER_REPLICATE)
+
+        mask = np.zeros((512, 512), dtype=np.float32)
+        cv2.circle(mask, (256, 256), 230, 1.0, -1)
+        mask = cv2.GaussianBlur(mask, (35, 35), 0)
+        mask_back = cv2.warpAffine(mask, M_inv, (dst_bgr.shape[1], dst_bgr.shape[0]))[..., None]
+
+        out_bgr = (restored_back.astype(np.float32) * mask_back + swapped_bgr.astype(np.float32) * (1.0 - mask_back)).astype(np.uint8)
+    else:
+        out_bgr = swapped_bgr
+
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
     cv2.imwrite(str(options.output), out_bgr)
