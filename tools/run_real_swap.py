@@ -83,12 +83,13 @@ def main():
     preload_cuda()
 
     try:
+        import onnxruntime
         import insightface
     except ImportError:
-        print("Installing insightface and dependencies…")
+        print("Installing insightface and runtime dependencies…")
         import subprocess
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "insightface"], check=True)
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "requests", "tqdm", "scikit-image", "scipy", "opencv-python-headless"], check=False)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "onnxruntime", "insightface"], check=False)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "opencv-python-headless"], check=False)
 
     alt_model = Path("/kaggle/working/inswapper_128.onnx")
     if not options.model.exists() and alt_model.exists() and alt_model.stat().st_size > 100_000_000:
