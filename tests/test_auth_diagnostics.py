@@ -113,6 +113,47 @@ def test_a_rejected_token_is_logged_as_a_rejected_token(isolated_db, caplog):
     assert "a credential was sent and refused" in line
 
 
+def test_the_session_endpoint_says_whether_anything_arrived(isolated_db, caplog):
+    """The line the incident needed. This endpoint answers 200 either way — with the account,
+    or with a guest record when no credential arrived — so in the log "signed in" and "holding
+    a token the server never saw" were the same three characters. It says which now."""
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        with TestClient(app) as client:
+            client.get("/api/auth/me")
+
+    line = next((r.getMessage() for r in caplog.records if "200 GET /api/auth/me" in r.getMessage()), None)
+    assert line, "a guest 200 is still indistinguishable from a signed-in one"
+    assert "no credential arrived" in line
+    assert "guest record" in line
+
+
+def test_the_session_endpoint_says_when_a_credential_was_accepted(signed_in, caplog):
+    with TestClient(app) as client:
+        token = client.post("/api/auth/demo-login", json={"role": "user"}).json()["access_token"]
+        with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+            client.get("/api/auth/me", headers={"authorization": f"Bearer {token}"})
+
+    line = next((r.getMessage() for r in caplog.records if "200 GET /api/auth/me" in r.getMessage()), None)
+    assert line and "sent and accepted" in line
+
+
+def test_a_refused_sign_in_does_not_claim_the_caller_was_anonymous(isolated_db, caplog):
+    """A 401 from the sign-in form has nothing to do with an Authorization header — the
+    credential is in the body. The generic wording said "no credential was sent (anonymous)"
+    beside it, which is a lie, and it nearly sent this diagnosis after a missing header that
+    was never supposed to be there."""
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        with TestClient(app) as client:
+            response = client.post("/api/auth/login",
+                                   json={"email": "demo@eidomira.test", "password": "not-the-one"})
+
+    assert response.status_code == 401
+    line = next((r.getMessage() for r in caplog.records if "401 POST /api/auth/login" in r.getMessage()), None)
+    assert line
+    assert "matched no account" in line
+    assert "anonymous" not in line
+
+
 def test_a_successful_call_says_nothing(caplog, signed_in):
     """The log has to stay worth reading: only refusals are mentioned, and only on /api/."""
     with caplog.at_level(logging.INFO, logger="uvicorn.error"):

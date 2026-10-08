@@ -34,12 +34,33 @@ async def auth_diagnostics_middleware(request: Request, call_next):
     token is never logged, and only refusals on /api/ are mentioned.
     """
     response = await call_next(request)
-    if response.status_code == 401 and request.url.path.startswith("/api/"):
-        sent = request.headers.get("authorization") or request.cookies.get("eidomira_access_token")
-        logging.getLogger("uvicorn.error").info(
-            "401 %s %s from %s — %s",
-            request.method, request.url.path,
-            request.client.host if request.client else "unknown",
-            "a credential was sent and refused" if sent else "no credential was sent (anonymous)",
+    path = request.url.path
+    if not path.startswith("/api/"):
+        return response
+
+    sender = request.client.host if request.client else "unknown"
+    logger = logging.getLogger("uvicorn.error")
+    credential = request.headers.get("authorization") or request.cookies.get("eidomira_access_token")
+
+    if path == "/api/auth/me" and response.status_code == 200:
+        # The line the incident needed. This endpoint answers 200 either way — with the
+        # account, or with a guest record when nothing arrived — so the status alone never
+        # said which, and "signed in" and "holding a token the server never saw" were the same
+        # three characters in the log. It says which now.
+        logger.info(
+            "200 GET /api/auth/me from %s — %s", sender,
+            "a credential was sent and accepted" if credential
+            else "no credential arrived, so this is the guest record",
         )
+    elif response.status_code == 401:
+        if path == "/api/auth/login":
+            # Nothing anonymous happens here: the credential is in the body, and saying "no
+            # credential was sent" beside a 401 from the sign-in form would be a lie that
+            # sends the next reader after the wrong thing, as it nearly did.
+            detail = "the submitted email and password matched no account"
+        elif credential:
+            detail = "a credential was sent and refused"
+        else:
+            detail = "no credential was sent (anonymous)"
+        logger.info("401 %s %s from %s — %s", request.method, path, sender, detail)
     return response

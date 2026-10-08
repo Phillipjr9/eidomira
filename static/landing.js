@@ -28,6 +28,13 @@
   const AUTH = (() => {
     let mode = "register";
     const tokenKey = "eidomira_access_token";
+    // What the demo will accept, as the server just published it. Held only so a failed
+    // sign-in can say what the password actually is: the demo credential is printed on this
+    // page already, so naming it in an error message exposes nothing new, and "Invalid email
+    // or password" beside a card showing a password is what sent somebody round this loop
+    // repeatedly with an older one.
+    let demoPassword = "";
+    let demoEmails = [];
 
     const el = {
       modal: $("#authModal"),
@@ -98,7 +105,16 @@
           el.message.style.color = "#6ee7b7";
         }
       } catch (error) {
-        el.message.textContent = error.message;
+        const typed = el.email.value.trim().toLowerCase();
+        const isDemo = demoEmails.includes(typed);
+        if (isDemo && mode === "login" && demoPassword) {
+          // Two ways this message gets read, and both are here: the browser autofilled a
+          // password saved from an earlier turn, or somebody typed the one they were given
+          // before it changed. Either way the page knows the answer and should not withhold it.
+          el.message.textContent = error.message + " — the demo password is " + demoPassword;
+        } else {
+          el.message.textContent = error.message;
+        }
         el.message.style.color = "#ff8fc4";
       } finally {
         el.submit.disabled = false;
@@ -172,6 +188,8 @@
         const methods = await fetch("/api/auth/methods").then((r) => r.json());
         if (!methods.demo_login || !el.demoRow) return;
         const accounts = methods.demo_accounts || [];
+        demoPassword = methods.demo_password || "";
+        demoEmails = accounts.map((a) => (a.email || "").toLowerCase());
         el.demoRow.querySelectorAll(".demoButton").forEach((button) => {
           const account = accounts.find((a) => a.role === button.dataset.role);
           if (account) button.querySelector("[data-email]").textContent = account.email;
@@ -183,7 +201,18 @@
           shown.textContent = methods.demo_password;
           el.demoRow.querySelector("[data-demo-label]").textContent =
             "Demo access · one click, or sign in with the password below";
-          hint.replaceChildren("Both accounts accept the same password — ", shown);
+          // A way to use it that cannot mistype it, beside the text for anyone who wants to
+          // see it. The button signs in with these exact values, never with what was typed.
+          const use = document.createElement("button");
+          use.type = "button";
+          use.className = "demoButton";
+          use.textContent = "Use this password";
+          use.addEventListener("click", () => {
+            el.email.value = accounts[0] ? accounts[0].email : "";
+            el.password.value = methods.demo_password;
+            el.form.requestSubmit();
+          });
+          hint.replaceChildren("Both accounts accept the same password — ", shown, " ", use);
           hint.hidden = false;
         }
         el.demoRow.hidden = false;

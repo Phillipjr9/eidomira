@@ -220,6 +220,20 @@ def test_a_200_from_the_session_endpoint_is_not_by_itself_a_session():
     assert "return undefined" in session, "the server not answering is read as a sign-out"
 
 
+def test_a_session_the_server_cannot_see_is_tried_for_before_it_is_ended():
+    """The third report, and the shape of it: the studio was bounced to `/?signin=1&ended=1`
+    with no 401 anywhere in the access log — `/api/auth/me` answered 200, as a *guest*, so no
+    credential had reached the server even though the page was holding a token. From the
+    client those two cases are the same response, so the only safe reading is the recoverable
+    one: try to put a session back, re-ask, and end it only if the ask says so."""
+    load = APP_JS[APP_JS.index("async function loadAccount()"):]
+    assert "if(await restoreDemoSession()) user=await sessionUser()" in load, \
+        "a session the server cannot see ends without being tried for"
+    assert load.index("restoreDemoSession") < load.index("endSession(")
+    # And the reason it can be a guest with a token in hand is said out loud.
+    assert "no credential reached it" in APP_JS
+
+
 def test_the_console_can_be_asked_what_the_page_believes():
     """The user asked for the console. Every one of these failures is a decision this file
     makes, and that decision was invisible from outside, so it can be asked for by name."""

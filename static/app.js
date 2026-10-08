@@ -99,7 +99,14 @@ async function sessionUser(){
     return undefined;
   }
   const user=await response.json();
-  if(!user||!user.id||user.role==='guest'||user.id==='local-guest')return null;
+  if(!user||!user.id||user.role==='guest'||user.id==='local-guest'){
+    // Worth saying out loud, because there are two ways to get here and they need different
+    // fixes: nothing was ever signed in, or this page is holding a token that did not reach
+    // the server. The second one has been seen, and it is invisible from the client.
+    console.warn('[eidomira] the server answered 200 as a guest — no credential reached it'+
+      (accessToken?' (this page is holding one)':''));
+    return null;
+  }
   return user;
 }
 
@@ -326,11 +333,7 @@ function tokenExpiry(){
 }
 
 async function loadAccount(){
-  if(!accessToken&&!(await restoreDemoSession())){
-    endSession('there was no session in this browser to restore',false);
-    return;
-  }
-  const user=await sessionUser();
+  let user=await sessionUser();
   if(user===undefined){
     // The server did not answer. That is not a session ending, and saying so is the whole
     // point: a flaky moment must not look like being logged out.
@@ -338,8 +341,24 @@ async function loadAccount(){
     return;
   }
   if(user===null){
-    endSession('the server says this token is not a session');
-    return;
+    /* The server does not see a session. Two unlike things look identical from here: the
+     * credential really is finished, or it never arrived — this page has been seen holding a
+     * token and still being answered as a guest, which is a credential lost on the way out
+     * rather than at the door. While the demo is on, a session can be put back, so try once
+     * before ending anything. Sending somebody to a sign-in card they have just used, without
+     * asking whether it was needed, is the whole complaint.
+     */
+    if(await restoreDemoSession()) user=await sessionUser();
+    if(user===undefined){
+      status('The server did not answer just now. Your session is untouched — reload when you like.',true);
+      return;
+    }
+    if(user===null){
+      // `ended` only if there was something to end: a visitor who never signed in should see
+      // the sign-in card, not a notice about a session they did not have.
+      endSession('the server does not recognise this browser as signed in',Boolean(accessToken));
+      return;
+    }
   }
   me=user;
   try{

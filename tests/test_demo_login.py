@@ -379,8 +379,11 @@ def test_the_client_restores_before_it_signs_anybody_out():
     assert "function endSession(" in head and "if(sessionEnded)return" in head
 
     boot = script[script.index("async function loadAccount()"):]
-    assert "if(!accessToken&&!(await restoreDemoSession()))" in boot, \
-        "an empty token store ends the session without trying to restore"
+    # The session endpoint is asked first now, and it is a "no session" answer that triggers the
+    # restore — so the restore is attempted on every path that could otherwise sign somebody
+    # out, empty token store or not. What matters is the order, not which branch checks what.
+    assert boot.index("restoreDemoSession") < boot.index("endSession("), \
+        "a session is ended without trying to restore it first"
 
     api = script[script.index("async function apiFetch"):script.index("async function sessionUser()")]
     assert api.index("restoreDemoSession") < api.index("endSession("), \
