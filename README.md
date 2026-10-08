@@ -660,6 +660,24 @@ someone who knows an address can deliberately trigger that lockout. The budget i
 before the password because that is the only ordering that slows guessing down. Raise
 `login_limit_per_hour` to trade protection for availability, or lower it to do the reverse.
 
+**The session token travels two ways, because the preview eats one of them.** This was the
+cause underneath three reports of being logged out, and it was found by reading which requests
+worked. Every request whose credential travelled in a *body* arrived intact —
+`POST /api/auth/login` and `POST /api/auth/demo-login`, both 200 — while every request carrying
+a token in the `Authorization` header reached this server with no credential at all:
+`/api/auth/me` answered as a *guest* to a browser that was holding a token,
+`/api/billing/account` answered 401, and minting a brand-new token changed neither because the
+new one went missing the same way. The cookie could not cover for it — it is `SameSite=Lax`,
+and a browser does not send that from inside a cross-site iframe, which an embedded preview is.
+So the client now sends the same token in `Authorization` *and* in `X-Eidomira-Token`, and the
+server accepts whichever arrives. One credential, two headers, no fallback logic: whichever the
+deployment preserves is enough, and `Authorization` still wins when both are present.
+`tools/auth_stripping_proxy.py` reproduces the failure — a proxy whose one job is to drop that
+header — and the test suite drives the real page and the real dependency through it, because
+every check up to that point had gone straight to `127.0.0.1` and never through a proxy at all.
+The diagnostic log says which route a credential arrived by, so this can be answered by reading
+rather than by inference.
+
 **The demo password does not move, and the card says it out loud.** It is the built-in
 `eidomira-demo-2026`, published by `/api/auth/methods` and shown on the card. Running a preview
 with `STUDIO_DEMO_PASSWORD` set changes it for that run — which is how a password that worked

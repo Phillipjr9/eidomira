@@ -141,16 +141,56 @@ def access_token(user):
                       settings.auth_secret, algorithm="HS256")
 
 
-def optional_user(authorization: str | None = Header(default=None), eidomira_access_token: str | None = Cookie(default=None)):
-    if not authorization and not eidomira_access_token:
+#: A header a client may present the token in instead of `Authorization`.
+#:
+#: This exists because of what the hosted preview proved about `Authorization`: it does not
+#: always survive the trip. Every request whose credential travelled in the *body* arrived
+#: intact — `POST /api/auth/login` and `POST /api/auth/demo-login` both answered 200 — while
+#: every request carrying a token in `Authorization` reached this server with no credential at
+#: all. `/api/auth/me` answered as a guest to a browser that was holding a token, and
+#: `/api/billing/account` answered 401, and minting a brand-new token changed neither, because
+#: the new one went missing the same way. The cookie cannot cover for it: it is `SameSite=Lax`,
+#: and a browser does not send that from inside a cross-site iframe, which an embedded preview
+#: is. A request that reaches the application is a request that reached it; the header is how
+#: the caller says who they are, and a client that can say it in two ways should.
+TOKEN_HEADER = "X-Eidomira-Token"
+
+
+def _as_token(value) -> str | None:
+    """Only a string is a credential.
+
+    Called directly rather than through FastAPI — which is what a test does — the parameters
+    keep their `Header(default=None)` sentinels, and a sentinel is an object, so it is truthy.
+    A truthiness check would hand one to the decoder and answer a perfectly anonymous call with
+    401. FastAPI injects a `str` or `None`; everything else is nothing.
+    """
+    return value if isinstance(value, str) else None
+
+
+def _presented_token(authorization: str | None, alternate: str | None, cookie: str | None) -> str | None:
+    """Whichever credential the caller offered — and only one of them.
+
+    `Authorization` wins if it is there, because a caller that sends both means that one. A
+    rejected credential is never retried as another: falling through on failure would turn a
+    token this server has refused into a puzzle, and the answer is 401 either way.
+    """
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise HTTPException(401, "Invalid or expired access token")
+        return token
+    return alternate or cookie
+
+
+def optional_user(authorization: str | None = Header(default=None),
+                  eidomira_token: str | None = Header(default=None, alias=TOKEN_HEADER),
+                  eidomira_access_token: str | None = Cookie(default=None)):
+    token = _presented_token(_as_token(authorization), _as_token(eidomira_token),
+                             _as_token(eidomira_access_token))
+    if not token:
         if settings.require_auth: raise HTTPException(401, "Authentication required")
         return {"id":"local-guest","email":"local@eidomira.invalid","email_verified":False,"role":"guest"}
     try:
-        if authorization:
-            scheme, token = authorization.split(" ",1)
-            if scheme.lower() != "bearer": raise ValueError
-        else:
-            token=eidomira_access_token
         payload = jwt.decode(token, settings.auth_secret, algorithms=["HS256"])
         # The role is read from the database on every request rather than carried in the
         # token. A token that claims a role it was not issued with therefore does nothing,
@@ -164,8 +204,10 @@ def optional_user(authorization: str | None = Header(default=None), eidomira_acc
         raise HTTPException(401, "Invalid or expired access token") from exc
 
 
-def authenticated_user(authorization: str | None = Header(default=None), eidomira_access_token: str | None = Cookie(default=None)):
-    user=optional_user(authorization,eidomira_access_token)
+def authenticated_user(authorization: str | None = Header(default=None),
+                       eidomira_token: str | None = Header(default=None, alias=TOKEN_HEADER),
+                       eidomira_access_token: str | None = Cookie(default=None)):
+    user=optional_user(authorization,eidomira_token,eidomira_access_token)
     if user["id"] == "local-guest": raise HTTPException(401,"Authentication required")
     return user
 

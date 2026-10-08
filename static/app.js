@@ -32,7 +32,7 @@ function endSession(reason,ended=true){
  * endpoint may end a session. */
 async function apiFetch(url,options={}){
   const headers=new Headers(options.headers||{});
-  if(accessToken)headers.set('Authorization','Bearer '+accessToken);
+  sendToken(headers);
   const response=await fetch(url,{...options,headers});
   // `reauth:false` marks the calls where a 401 is not about the session: a wrong current
   // password is refused with 403 for exactly this reason, and anything else that can answer
@@ -47,7 +47,7 @@ async function apiFetch(url,options={}){
   // what left the session check below with nothing to check.
   if(await restoreDemoSession()){
     const retried=new Headers(options.headers||{});
-    retried.set('Authorization','Bearer '+accessToken);
+    sendToken(retried);
     const retry=await fetch(url,{...options,headers:retried});
     if(retry.status!==401)return retry;
     console.warn('[eidomira] '+url+' still answered 401 with a brand-new session');
@@ -88,7 +88,9 @@ async function apiFetch(url,options={}){
 async function sessionUser(){
   let response;
   try{
-    response=await fetch('/api/auth/me',{headers:accessToken?{Authorization:'Bearer '+accessToken}:{}});
+    const headers=new Headers();
+    sendToken(headers);
+    response=await fetch('/api/auth/me',{headers});
   }catch(error){
     console.warn('[eidomira] could not reach the server to check the session:',error.message);
     return undefined;
@@ -130,6 +132,23 @@ window.eidomiraSession=async()=>{
   console.log('[eidomira] session',report);
   return report;
 };
+/* How this page presents the token, and why it is said twice.
+ *
+ * `Authorization` is the right header and stays the primary one. It also turned out not to
+ * survive the hosted preview: every request whose credential travelled in a body arrived
+ * intact, and every request carrying a token in `Authorization` reached the server with no
+ * credential at all — a guest answer to a browser that was holding one, and a fresh token did
+ * not change it. The cookie cannot cover for it either, being SameSite=Lax and therefore
+ * unsent from inside a cross-site iframe. So the same token also goes in a plain header that
+ * nothing has a reason to consume, and the server takes whichever arrives. Two headers, one
+ * credential, no fallback logic: whichever one the deployment preserves is enough.
+ */
+function sendToken(headers){
+  if(!accessToken)return headers;
+  headers.set('Authorization','Bearer '+accessToken);
+  headers.set('X-Eidomira-Token',accessToken);
+  return headers;
+}
 function setToken(token){accessToken=token||'';if(token)localStorage.setItem('eidomira_access_token',token);else localStorage.removeItem('eidomira_access_token')}
 function creditCount(n){return (n||0).toLocaleString('en-NG')}
 function walletDate(seconds){return new Date(seconds*1000).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})}

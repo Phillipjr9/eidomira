@@ -7,7 +7,7 @@ line saying *why* it was refused. The two refusals mean opposite things:
 
   * "no credential was sent at all" — the caller is anonymous. Refusing is correct, and it says
     nothing about whether the session these pages care about is alive.
-  * "a credential was sent and refused" — the token really is finished.
+  * "a credential arrived via authorization and was refused" — the token really is finished.
 
 Both are 401, so the log could not settle which had happened, and neither could the browser:
 `optional_user` returns a *guest record* for the first case, and `/api/auth/me` answers it with
@@ -19,7 +19,9 @@ line which kind of refusal it just sent.
 """
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,6 +29,8 @@ from fastapi.testclient import TestClient
 from app import demo
 from app.config import settings
 from app.main import app
+
+ROOT = Path(__file__).resolve().parent.parent
 
 #: The address the guest record carries. Its whole purpose is to be recognisable as "nobody":
 #: the studio rendered it into the account chip, which is how a page came to look signed in as
@@ -87,6 +91,68 @@ def test_a_real_token_gets_the_balance(signed_in):
     assert "wallet" in balance.json()
 
 
+# ── the second way in, and why it exists ────────────────────────────────────────
+#
+# The hosted preview loses `Authorization`. Every request whose credential travelled in a body
+# arrived intact — `POST /api/auth/login` and `POST /api/auth/demo-login`, both 200 — while
+# every request carrying a token in that header reached the server with nothing: `/api/auth/me`
+# answered as a guest to a browser that was holding a token, `/api/billing/account` answered
+# 401, and minting a new token changed neither, because the new one went missing the same way.
+# `tools/auth_stripping_proxy.py` reproduces it, and is how the fix was checked rather than
+# assumed.
+
+
+def test_the_alternate_header_authenticates_through_a_proxy_that_strips_authorization(signed_in):
+    """The reproduction, kept as a test so it cannot come back.
+
+    `Authorization` is dropped between the browser and the application, which is exactly what
+    the preview does; the token arrives in the plain header instead and the account is found.
+    """
+    import importlib.util
+    import threading
+
+    spec = importlib.util.spec_from_file_location(
+        "auth_stripping_proxy", ROOT / "tools" / "auth_stripping_proxy.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    from http.server import ThreadingHTTPServer
+    server = ThreadingHTTPServer(("127.0.0.1", 0), module.Proxy)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with TestClient(app) as client:
+            token = client.post("/api/auth/demo-login",
+                                json={"role": "user"}).json()["access_token"]
+
+        import urllib.request as request
+        def ask(headers):
+            req = request.Request(f"http://127.0.0.1:{port}/api/auth/me", headers=headers)
+            with request.urlopen(req) as answer:
+                return json.loads(answer.read())
+
+        # The control: the header the proxy eats, alone.
+        assert ask({"Authorization": f"Bearer {token}"})["role"] == "guest"
+        # The fix: the same token, in a header nothing has a reason to consume.
+        assert ask({"X-Eidomira-Token": token})["email"] == "demo@eidomira.test"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_client_says_it_both_ways():
+    """One credential, two headers, no fallback logic: whichever the deployment preserves is
+    enough. A client that sends only `Authorization` is at the mercy of whatever is in front
+    of it."""
+    for name in ("app.js", "admin.js"):
+        script = (ROOT / "static" / name).read_text(encoding="utf-8")
+        assert "X-Eidomira-Token" in script, f"{name} has only one way to present the token"
+        assert "Authorization" in script, f"{name} dropped the standard header"
+    api = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+    assert "function sendToken(headers)" in api
+    assert api.count("sendToken(") >= 4, "a call site still sets only one header"
+
+
 # ── and the log now says which one it was ───────────────────────────────────────
 
 def test_an_anonymous_refusal_is_logged_as_anonymous(isolated_db, caplog):
@@ -110,7 +176,7 @@ def test_a_rejected_token_is_logged_as_a_rejected_token(isolated_db, caplog):
     line = next((r.getMessage() for r in caplog.records
                  if "401 GET /api/auth/me" in (r.getMessage())), None)
     assert line
-    assert "a credential was sent and refused" in line
+    assert "a credential arrived via authorization and was refused" in line
 
 
 def test_the_session_endpoint_says_whether_anything_arrived(isolated_db, caplog):
@@ -134,7 +200,7 @@ def test_the_session_endpoint_says_when_a_credential_was_accepted(signed_in, cap
             client.get("/api/auth/me", headers={"authorization": f"Bearer {token}"})
 
     line = next((r.getMessage() for r in caplog.records if "200 GET /api/auth/me" in r.getMessage()), None)
-    assert line and "sent and accepted" in line
+    assert line and "via authorization and was accepted" in line
 
 
 def test_a_refused_sign_in_does_not_claim_the_caller_was_anonymous(isolated_db, caplog):

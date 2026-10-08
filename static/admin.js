@@ -21,7 +21,12 @@ const token = () => localStorage.getItem(TOKEN_KEY) || "";
 async function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
   const session = token();
-  if (session) headers.set("Authorization", "Bearer " + session);
+  if (session) {
+    headers.set("Authorization", "Bearer " + session);
+    // The same credential in a second header: the hosted preview has been seen to lose
+    // `Authorization` in transit while leaving everything else alone. See static/app.js.
+    headers.set("X-Eidomira-Token", session);
+  }
   return fetch(url, { ...options, headers });
 }
 

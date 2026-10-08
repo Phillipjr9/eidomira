@@ -14,7 +14,7 @@ from aiortc import RTCPeerConnection, RTCSessionDescription
 from app.config import DEVELOPMENT_AUTH_SECRET, settings
 from app.ice import rtc_configuration
 from app.calls import create_room_name, create_call_token
-from app.security import register, authenticate, access_token, change_password, optional_user, authenticated_user, require_admin, issue_email_token, verify_email_token
+from app.security import register, authenticate, access_token, change_password, optional_user, authenticated_user, require_admin, issue_email_token, verify_email_token, TOKEN_HEADER
 from app.database import database
 from app.mailer import send_verification
 from app.billing import PLAN, TOOLS, create_trial, account as billing_account, quote as billing_quote
@@ -37,7 +37,7 @@ app.add_middleware(
     allow_origins=settings.origin_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", TOKEN_HEADER],
 )
 app.middleware("http")(metrics_middleware)
 app.middleware("http")(auth_diagnostics_middleware)

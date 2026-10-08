@@ -71,14 +71,18 @@ def counting_hasher(monkeypatch):
     return counter
 
 
-def call_optional_user(authorization=None, cookie=None):
+def call_optional_user(authorization=None, cookie=None, token_header=None):
     """Call it the way FastAPI does.
 
     The `Header(default=None)` marker is not a real default: passing no argument leaves
-    the framework's sentinel in place, which the fail-closed `except Exception` then
-    reports as a 401. FastAPI always injects a str or None, so the tests do too.
+    the framework's sentinel in place, which a truthiness check reads as a credential and
+    the fail-closed `except Exception` then reports as a 401. FastAPI always injects a str
+    or None, so the tests do too — and `_as_token` now refuses the sentinel as well, so
+    this helper is belt as well as braces.
     """
-    return security.optional_user(authorization=authorization, eidomira_access_token=cookie)
+    return security.optional_user(authorization=authorization,
+                                 eidomira_token=token_header,
+                                 eidomira_access_token=cookie)
 
 
 # ─────────────────────────────── registration ───────────────────────────────
@@ -353,6 +357,28 @@ def test_disable_takes_effect_immediately_for_an_issued_token(isolated_db, store
     with pytest.raises(HTTPException) as excinfo:
         call_optional_user(authorization=f"Bearer {token}")
     assert excinfo.value.status_code == 401
+
+
+def test_the_alternate_header_is_accepted_where_authorization_is_lost(isolated_db, stored_hash):
+    """`Authorization` is the right header and remains the primary one, but the hosted
+    preview has been seen to lose it in transit — every request carrying a credential in a
+    body arrived intact while every request carrying one in that header arrived with no
+    credential at all. So the same token also travels in a plain header, and either is enough.
+    """
+    uid = make_user("alternate@example.com", password_hash=stored_hash)
+    token = access_token({"id": uid, "email": "alternate@example.com"})
+    assert call_optional_user(token_header=token)["id"] == uid
+
+
+def test_a_refused_credential_is_not_retried_as_another(isolated_db, stored_hash):
+    """Two ways in, one answer. A caller that sends a bad `Authorization` and a good
+    alternate is not authenticated by the second: falling through on a refused token would
+    turn it into a puzzle, and the answer is 401 either way."""
+    uid = make_user("both@example.com", password_hash=stored_hash)
+    token = access_token({"id": uid, "email": "both@example.com"})
+    with pytest.raises(HTTPException) as refused:
+        call_optional_user(authorization="Bearer not-a-token", token_header=token)
+    assert refused.value.status_code == 401
 
 
 def test_unsigned_guest_access_when_auth_is_not_required(isolated_db, monkeypatch):

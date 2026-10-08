@@ -5,6 +5,8 @@ import time
 from fastapi import Request
 from prometheus_client import Counter, Histogram, Gauge
 
+from app.security import TOKEN_HEADER
+
 REQUESTS = Counter("eidomira_http_requests_total", "HTTP requests", ["method","route","status"])
 DURATION = Histogram("eidomira_http_duration_seconds", "HTTP duration", ["method","route"])
 ACTIVE_SESSIONS = Gauge("eidomira_active_sessions", "In-memory identity sessions")
@@ -40,7 +42,16 @@ async def auth_diagnostics_middleware(request: Request, call_next):
 
     sender = request.client.host if request.client else "unknown"
     logger = logging.getLogger("uvicorn.error")
-    credential = request.headers.get("authorization") or request.cookies.get("eidomira_access_token")
+    # Which of the ways a token can travel actually arrived. This is the reading that took two
+    # sessions to obtain: the access log showed a signed-in browser being answered as a guest,
+    # and nothing in it could say whether the credential had been refused or had never been
+    # sent. It says which now, and by which route, because the two have different fixes.
+    credential = (request.headers.get("authorization")
+                  or request.headers.get(TOKEN_HEADER)
+                  or request.cookies.get("eidomira_access_token"))
+    route = ("authorization" if request.headers.get("authorization")
+             else "x-eidomira-token" if request.headers.get(TOKEN_HEADER)
+             else "cookie" if request.cookies.get("eidomira_access_token") else "none")
 
     if path == "/api/auth/me" and response.status_code == 200:
         # The line the incident needed. This endpoint answers 200 either way — with the
@@ -49,8 +60,8 @@ async def auth_diagnostics_middleware(request: Request, call_next):
         # three characters in the log. It says which now.
         logger.info(
             "200 GET /api/auth/me from %s — %s", sender,
-            "a credential was sent and accepted" if credential
-            else "no credential arrived, so this is the guest record",
+            "a credential arrived via %s and was accepted" % route if credential
+            else "no credential arrived by any route, so this is the guest record",
         )
     elif response.status_code == 401:
         if path == "/api/auth/login":
@@ -59,7 +70,7 @@ async def auth_diagnostics_middleware(request: Request, call_next):
             # sends the next reader after the wrong thing, as it nearly did.
             detail = "the submitted email and password matched no account"
         elif credential:
-            detail = "a credential was sent and refused"
+            detail = "a credential arrived via %s and was refused" % route
         else:
             detail = "no credential was sent (anonymous)"
         logger.info("401 %s %s from %s — %s", request.method, path, sender, detail)
