@@ -770,6 +770,75 @@ async function waitForIce(connection){
   if(connection.iceGatheringState==='complete')return;
   await new Promise(resolve=>{const check=()=>{if(connection.iceGatheringState==='complete'){connection.removeEventListener('icegatheringstatechange',check);resolve()}};connection.addEventListener('icegatheringstatechange',check);setTimeout(resolve,4000)});
 }
+let liveWs=null,wsFrameTimer=null,wsCapCanvas=null,wsOutCanvas=null;
+
+function startWebSocketTransform(){
+  if(pc){try{pc.close()}catch(_){}pc=null}
+  status('Live neural stream connecting…');
+  const protocol=location.protocol==='https:'?'wss:':'ws:';
+  const url=`${protocol}//${location.host}/api/live/${session}`;
+  if(!wsCapCanvas)wsCapCanvas=document.createElement('canvas');
+  if(!wsOutCanvas)wsOutCanvas=document.createElement('canvas');
+  const capCtx=wsCapCanvas.getContext('2d'),outCtx=wsOutCanvas.getContext('2d');
+  try{liveWs=new WebSocket(url);liveWs.binaryType='arraybuffer'}catch(err){status('Stream error: '+err.message,true);stopTransform();return}
+  let inFlight=false;
+  liveWs.onopen=()=>{
+    running=true;$('goBtn').disabled=false;$('goBtn').innerHTML='<span>■</span> Stop transformation';
+    $('outputBadge').textContent='LIVE';$('outputBadge').className='badge live';$('p3').classList.add('active');
+    status('Live neural stream connected.');
+    if(wsOutCanvas.captureStream){
+      const stream=wsOutCanvas.captureStream(30);
+      $('output').srcObject=stream;$('output').style.display='block';$('outputEmpty').style.display='none';
+      $('recordBtn').disabled=false;$('cleanBtn').disabled=false;$('output').play().catch(()=>{});
+    }
+    wsFrameTimer=setInterval(()=>{
+      if(!running||inFlight||!liveWs||liveWs.readyState!==WebSocket.OPEN)return;
+      const vid=$('video');if(!vid||vid.videoWidth===0)return;
+      wsCapCanvas.width=vid.videoWidth||640;wsCapCanvas.height=vid.videoHeight||480;
+      capCtx.drawImage(vid,0,0,wsCapCanvas.width,wsCapCanvas.height);
+      inFlight=true;
+      wsCapCanvas.toBlob(blob=>{
+        if(blob&&liveWs&&liveWs.readyState===WebSocket.OPEN){
+          blob.arrayBuffer().then(buf=>liveWs.send(buf)).catch(()=>{inFlight=false});
+        }else{inFlight=false}
+      },'image/jpeg',0.82);
+    },45);
+  };
+  liveWs.onmessage=async(e)=>{
+    if(typeof e.data==='string'){
+      try{
+        const msg=JSON.parse(e.data);
+        if(msg.type==='frame'){
+          $('latency').textContent=msg.latency_ms+' ms';
+          $('frameCost').textContent=(msg.server_ms!=null?msg.server_ms+' ms':'— ms');
+          $('outputBadge').textContent=msg.face_found?'LIVE':'NO FACE';
+          $('inferenceSize').textContent=(wsCapCanvas?wsCapCanvas.width:640)+' px';
+          if(msg.server_ms)$('fps').textContent=Math.round(1000/Math.max(msg.server_ms,35))+' FPS';
+        }else if(msg.type==='verification'){
+          $('verified').textContent=msg.verified?'VERIFIED':'MATCHING';
+        }else if(msg.type==='fatal'){
+          status(msg.message,true);stopTransform();
+        }
+      }catch(_){}
+    }else{
+      inFlight=false;
+      const blob=new Blob([e.data],{type:'image/jpeg'});
+      const img=new Image();
+      img.onload=()=>{
+        wsOutCanvas.width=img.naturalWidth||640;wsOutCanvas.height=img.naturalHeight||480;
+        outCtx.drawImage(img,0,0,wsOutCanvas.width,wsOutCanvas.height);
+        URL.revokeObjectURL(img.src);
+      };
+      img.src=URL.createObjectURL(blob);
+    }
+  };
+  liveWs.onerror=()=>{inFlight=false};
+  liveWs.onclose=()=>{
+    inFlight=false;clearInterval(wsFrameTimer);wsFrameTimer=null;
+    if(running)stopTransform();
+  };
+}
+
 async function startTransform(){
   if(!session||!media)return;
   $('goBtn').disabled=true;status('Creating secure WebRTC session…');
@@ -781,10 +850,18 @@ async function startTransform(){
     media.getVideoTracks().forEach(track=>{const transceiver=pc.addTransceiver(track,{direction:'sendrecv'});try{const codecs=RTCRtpSender.getCapabilities('video').codecs;const rank=c=>c.mimeType.toLowerCase()==='video/h264'?0:c.mimeType.toLowerCase()==='video/vp8'?1:2;transceiver.setCodecPreferences([...codecs].sort((a,b)=>rank(a)-rank(b)))}catch{}});
     pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);$('output').srcObject=stream;$('output').style.display='block';$('outputEmpty').style.display='none';$('recordBtn').disabled=false;$('cleanBtn').disabled=false;$('output').play().catch(()=>{})};
     pc.ondatachannel=e=>{if(e.channel.label==='eidomira-telemetry')e.channel.onmessage=handleTelemetry};
+
+    // If WebRTC UDP doesn't reach connected in 2.5s (e.g. cloud NAT without UDP), switch to WebSocket stream
+    const fallbackTimer=setTimeout(()=>{
+      if(running&&(!pc||pc.connectionState!=='connected')){
+        startWebSocketTransform();
+      }
+    },2500);
+
     pc.onconnectionstatechange=()=>{
       const state=pc?.connectionState;
-      if(state==='connected'){status('Live neural channel connected.');reconnects=0}
-      if(['failed','disconnected'].includes(state)&&running)recoverConnection();
+      if(state==='connected'){clearTimeout(fallbackTimer);status('Live neural channel connected.');reconnects=0}
+      if(['failed','disconnected'].includes(state)&&running){clearTimeout(fallbackTimer);startWebSocketTransform()}
     };
     const offer=await pc.createOffer();await pc.setLocalDescription(offer);await waitForIce(pc);
     const response=await apiFetch('/api/webrtc/'+session+'/offer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sdp:pc.localDescription.sdp,type:pc.localDescription.type})});
@@ -794,7 +871,10 @@ async function startTransform(){
     running=true;$('goBtn').disabled=false;$('goBtn').innerHTML='<span>■</span> Stop transformation';
     $('outputBadge').textContent='CONNECTING';$('outputBadge').className='badge live';$('p3').classList.add('active');
     statsTimer=setInterval(updateWebRTCStats,1000);
-  }catch(e){stopTransform();status('WebRTC error: '+e.message,true);$('goBtn').disabled=false}
+  }catch(e){
+    // If WebRTC fails outright (e.g. browser ICE block), fall back to WebSocket immediately
+    startWebSocketTransform();
+  }
 }
 function handleTelemetry(event){
   const j=JSON.parse(event.data);
@@ -835,6 +915,8 @@ async function recoverConnection(){
 function stopTransform(reset=true){
   if(recorder&&recorder.state==='recording')stopRecording();
   running=false;clearInterval(statsTimer);statsTimer=null;
+  if(wsFrameTimer){clearInterval(wsFrameTimer);wsFrameTimer=null}
+  if(liveWs){try{liveWs.close()}catch(_){}liveWs=null}
   if(pc){pc.onconnectionstatechange=null;pc.getSenders().forEach(s=>{if(s.track)s.replaceTrack(null).catch(()=>{})});pc.close();pc=null}
   wakeLock?.release().catch(()=>{});wakeLock=null;
   $('output').srcObject=null;$('output').style.display='none';$('outputEmpty').style.display='grid';$('livenessPrompt').style.display='none';
