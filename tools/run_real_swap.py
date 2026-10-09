@@ -191,13 +191,31 @@ def main():
         restored_512 = np.squeeze(raw).transpose(1, 2, 0)
         restored_512 = np.clip((restored_512 * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)[:, :, ::-1]
 
+        # 1. Micro-texture sharpening to restore realistic skin pores, eyelashes, and iris depth
+        gaussian = cv2.GaussianBlur(restored_512, (0, 0), 1.8)
+        crisp_512 = cv2.addWeighted(restored_512, 1.35, gaussian, -0.35, 0)
+
+        # 2. Authentic skin tone & complexion matching to source identity
+        try:
+            from insightface.utils import face_align
+            src_crop, _ = face_align.norm_crop2(cv2.imread(str(src_path)), best_src.kps, 512)
+            src_lab = cv2.cvtColor(src_crop, cv2.COLOR_BGR2LAB).astype(np.float32)
+            dst_lab = cv2.cvtColor(crisp_512, cv2.COLOR_BGR2LAB).astype(np.float32)
+            for c in (1, 2):  # a and b channels (warmth/tint)
+                s_mean = src_lab[:, :, c].mean()
+                d_mean = dst_lab[:, :, c].mean()
+                dst_lab[:, :, c] = np.clip(dst_lab[:, :, c] + (s_mean - d_mean) * 0.45, 0, 255)
+            crisp_512 = cv2.cvtColor(dst_lab.astype(np.uint8), cv2.COLOR_LAB2BGR)
+        except Exception:
+            pass
+
         # Scaled affine transform to warp 512x512 directly into target image
         M_512 = M.copy()
         M_512[:2, :] *= 4.0
         IM_512 = cv2.invertAffineTransform(M_512)
 
         restored_full = cv2.warpAffine(
-            restored_512, IM_512, (dst_bgr.shape[1], dst_bgr.shape[0]),
+            crisp_512, IM_512, (dst_bgr.shape[1], dst_bgr.shape[0]),
             borderMode=cv2.BORDER_REPLICATE
         )
 
