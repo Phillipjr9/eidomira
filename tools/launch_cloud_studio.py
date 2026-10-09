@@ -178,7 +178,7 @@ def main():
         print("✅ Backend server verified and listening on port 8000.", flush=True)
 
     # 5. Start Cloudflare Tunnel
-    print("Opening secure HTTPS tunnel for camera access…")
+    print("Opening secure HTTPS tunnel for camera access…", flush=True)
     tunnel_cmd = [
         str(cloudflared_path), "tunnel",
         "--url", "http://127.0.0.1:8000",
@@ -198,20 +198,24 @@ def main():
             break
 
     if public_url:
-        print("\n" + "#" * 72)
-        print("  🎉 EIDOMIRA LIVE WEBCAM STUDIO IS LIVE!")
-        print("#" * 72)
-        print(f"\n  👉 OPEN THIS LINK ON YOUR MAC BROWSER (Chrome/Safari):")
-        print(f"     {public_url}/app\n")
-        print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026")
-        print("#" * 72)
-        print("\nStreaming live WebRTC GPU pipeline at 30+ FPS… Keep this cell running!")
+        print("\n" + "#" * 72, flush=True)
+        print("  🎉 EIDOMIRA LIVE WEBCAM STUDIO IS LIVE!", flush=True)
+        print("#" * 72, flush=True)
+        print(f"\n  👉 OPEN THIS LINK ON YOUR MAC BROWSER (Chrome/Safari):", flush=True)
+        print(f"     {public_url}/app\n", flush=True)
+        print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026", flush=True)
+        print("#" * 72, flush=True)
+        print("\nStreaming live WebRTC GPU pipeline at 30+ FPS… Keep this cell running!", flush=True)
     else:
-        print("Warning: Could not automatically detect tunnel URL. Check tunnel logs.")
+        print("Warning: Could not automatically detect tunnel URL. Check tunnel logs.", flush=True)
 
     # Stream logs
     try:
-        while True:
+        server_proc.wait()
+    except KeyboardInterrupt:
+        print("\nShutting down server…", flush=True)
+        server_proc.terminate()
+        tunnel_proc.terminate()
             line = tunnel_proc.stdout.readline()
             if not line:
                 break

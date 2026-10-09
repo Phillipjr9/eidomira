@@ -72,6 +72,19 @@ class LivePortraitEngine(FaceSwapEngine):
             from src.live_portrait_wrapper import LivePortraitWrapper
             from src.utils.cropper import Cropper
 
+            # Prevent InsightFace from attempting to download missing models from Google Drive
+            try:
+                from src.utils.face_analysis_diy import FaceAnalysisDIY
+                orig_diy_init = FaceAnalysisDIY.__init__
+
+                def _safe_diy_init(self, *args, **kwargs):
+                    kwargs["allowed_modules"] = ["detection", "landmark_2d_106"]
+                    orig_diy_init(self, *args, **kwargs)
+
+                FaceAnalysisDIY.__init__ = _safe_diy_init
+            except Exception:
+                pass
+
             self.inference_cfg = InferenceConfig()
             self.crop_cfg = CropConfig()
 
