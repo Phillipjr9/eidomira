@@ -30,20 +30,17 @@ CLOUDFLARED_BIN = ROOT / "cloudflared"
 
 def download_cloudflared():
     for p in [Path("/kaggle/working/cloudflared"), CLOUDFLARED_BIN, Path("/usr/local/bin/cloudflared")]:
-        if p.exists() and p.stat().st_size > 1_000_000:
+        if p.exists() and p.stat().st_size > 10_000_000:
             return p
-    print("Downloading Cloudflare Tunnel binary…", flush=True)
     target = Path("/kaggle/working/cloudflared") if Path("/kaggle/working").exists() else CLOUDFLARED_BIN
     target.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Fetching Cloudflare tunnel binary into {target}…", flush=True)
     try:
-        subprocess.run(["wget", "-q", "-c", CLOUDFLARED_URL, "-O", str(target)], check=True)
-        target.chmod(0o755)
-        print("Cloudflare Tunnel ready.", flush=True)
-        return target
-    except Exception:
-        pass
-    try:
-        subprocess.run(["curl", "-sL", CLOUDFLARED_URL, "-o", str(target)], check=True)
+        subprocess.run([
+            "curl", "-fSL", "--connect-timeout", "15",
+            CLOUDFLARED_URL,
+            "-o", str(target)
+        ], check=True)
         target.chmod(0o755)
         print("Cloudflare Tunnel ready.", flush=True)
         return target

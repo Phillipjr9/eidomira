@@ -64,6 +64,24 @@ def main():
     else:
         print(f"\nPretrained weights already present at {WEIGHTS_DIR}")
 
+    # 4. Setup Cloudflare tunnel binary
+    cf = Path("/kaggle/working/cloudflared") if Path("/kaggle/working").exists() else (ROOT / "cloudflared")
+    if not (cf.exists() and cf.stat().st_size > 10_000_000):
+        print(f"\nFetching Cloudflare tunnel binary into {cf}…")
+        cf.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            subprocess.run([
+                "curl", "-fSL", "--connect-timeout", "15",
+                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+                "-o", str(cf)
+            ], check=True)
+            cf.chmod(0o755)
+            print("Cloudflare tunnel binary ready.")
+        except Exception as exc:
+            print(f"Cloudflare binary notice: {exc}")
+    else:
+        print(f"Cloudflare tunnel binary already present at {cf}")
+
     print("\n✅ LivePortrait setup completed successfully!")
     return 0
 
