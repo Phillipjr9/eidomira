@@ -21,6 +21,26 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+def preload_cuda():
+    import ctypes
+    import glob
+    search_paths = []
+    for p in sys.path:
+        search_paths.extend(glob.glob(os.path.join(p, "nvidia", "*", "lib")))
+    search_paths.append("/usr/local/cuda/lib64")
+    current_ld = os.environ.get("LD_LIBRARY_PATH", "")
+    os.environ["LD_LIBRARY_PATH"] = ":".join(search_paths) + (":" + current_ld if current_ld else "")
+    for path in search_paths:
+        if os.path.exists(path):
+            for so_file in glob.glob(os.path.join(path, "*.so*")):
+                try:
+                    ctypes.CDLL(so_file, mode=ctypes.RTLD_GLOBAL)
+                except Exception:
+                    pass
 
 WAV2LIP_URL = "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/wav2lip_gan_96.onnx"
 DEFAULT_AUDIO = ROOT / "static" / "speech-elon.mp3"
@@ -130,6 +150,7 @@ def main() -> int:
     parser.add_argument("--model", type=Path, default=ROOT / "models" / "wav2lip_gan_96.onnx")
     parser.add_argument("--restore", action="store_true", default=True, help="GFPGAN mouth restoration")
     options = parser.parse_args()
+    preload_cuda()
 
     # Fallback face selection if default output doesn't exist yet
     face_path = options.face
