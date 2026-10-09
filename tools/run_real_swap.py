@@ -169,21 +169,34 @@ def main():
     t0 = time.perf_counter()
     dst_bgr = cv2.imread(str(dst_path))
 
-    # Pass 1: Initial identity projection
-    print("  [Stage 1/3] Initial identity projection…")
-    pass1_bgr = engine.swapper.get(dst_bgr, best_dst, best_src, paste_back=True)
+    # Adapt target facial bone landmarks toward source identity skull geometry
+    import copy
+    src_center = best_src.kps.mean(axis=0)
+    dst_center = best_dst.kps.mean(axis=0)
+    src_scale = np.linalg.norm(best_src.kps[1] - best_src.kps[0]) + 1e-5
+    dst_scale = np.linalg.norm(best_dst.kps[1] - best_dst.kps[0]) + 1e-5
+    src_kps_norm = (best_src.kps - src_center) * (dst_scale / src_scale) + dst_center
+    # Pull eye distance, eyebrow height, and nose-mouth proportions 60% toward source identity
+    adapted_kps = (best_dst.kps * 0.40 + src_kps_norm * 0.60).astype(np.float32)
 
-    # Pass 2: Second identity injection to break the 30% ceiling and lock in bone structure
+    target_adapted = copy.copy(best_dst)
+    target_adapted.kps = adapted_kps
+
+    # Pass 1: Morphological identity projection with adapted skull proportions
+    print("  [Stage 1/3] Morphological identity projection with source skull proportions…")
+    pass1_bgr = engine.swapper.get(dst_bgr, target_adapted, best_src, paste_back=True)
+
+    # Pass 2: Second identity injection to lock in bone structure and eye contours
     faces_p1 = engine._faces(cv2.cvtColor(pass1_bgr, cv2.COLOR_BGR2RGB))
     if not faces_p1:
         faces_p1 = engine.analyzer.get(pass1_bgr)
 
     if faces_p1:
         best_p1 = max(faces_p1, key=lambda f: (f.bbox[2]-f.bbox[0]) * (f.bbox[3]-f.bbox[1]))
-        print("  [Stage 2/3] Second identity injection (reinforcing eye angle, jawline, and nose contours)…")
+        print("  [Stage 2/3] Second identity injection (locking in eye shape, brow angle, and lip geometry)…")
         bgr_fake, M = engine.swapper.get(pass1_bgr, best_p1, best_src, paste_back=False)
     else:
-        bgr_fake, M = engine.swapper.get(dst_bgr, best_dst, best_src, paste_back=False)
+        bgr_fake, M = engine.swapper.get(dst_bgr, target_adapted, best_src, paste_back=False)
 
     # State-of-the-art 512x512 Full-Coverage Detail Restoration
     restorer_path = ROOT / "models" / "gfpgan_1.4.onnx"
