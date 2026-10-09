@@ -15,7 +15,6 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
-import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -123,6 +122,7 @@ def main():
         pass
 
     import cv2
+    import numpy as np
     from app.engines.inswapper import InSwapperEngine
 
     print(f"Initializing InSwapperEngine with model: {options.model}…")
