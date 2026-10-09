@@ -42,20 +42,50 @@ def preload_cuda():
                 except Exception:
                     pass
 
-WAV2LIP_URL = "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/wav2lip_gan_96.onnx"
+WAV2LIP_URLS = [
+    "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/wav2lip_gan_96.onnx",
+    "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/wav2lip_96.onnx",
+]
 DEFAULT_AUDIO = ROOT / "static" / "speech-elon.mp3"
 DEFAULT_FACE = ROOT / "swapped_result.jpg"
 DEFAULT_OUTPUT = ROOT / "lipsync_elon.mp4"
 
 
-def download_file(url: str, dest: Path, label: str):
-    if dest.exists() and dest.stat().st_size > 10_000:
-        return
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Downloading {label} from {url}…")
+def download_file(urls: list[str] | str, destination: Path, label: str) -> bool:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and destination.stat().st_size > 10_000_000:
+        print(f"  {label} already present: {destination} ({destination.stat().st_size / 1e6:.1f} MB)")
+        return True
+    if isinstance(urls, str):
+        urls = [urls]
     import urllib.request
-    urllib.request.urlretrieve(url, str(dest))
-    print(f"Download complete: {dest} ({dest.stat().st_size / 1024 / 1024:.1f} MB)")
+    for url in urls:
+        print(f"Downloading {label} from {url}…")
+        try:
+            partial = destination.with_suffix(".part")
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            with urllib.request.urlopen(req, timeout=240) as response, partial.open("wb") as handle:
+                total = int(response.headers.get("Content-Length", 0))
+                downloaded = 0
+                last_pct = 0
+                while True:
+                    chunk = response.read(2 << 20)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        pct = int(downloaded / total * 100)
+                        if pct >= last_pct + 25:
+                            print(f"  {pct}% ({downloaded / 1e6:.1f} / {total / 1e6:.1f} MB)…")
+                            last_pct = pct
+            if partial.stat().st_size > 1_000_000:
+                partial.replace(destination)
+                print(f"Download complete: {destination} ({destination.stat().st_size / 1e6:.1f} MB)")
+                return True
+        except Exception as exc:
+            print(f"  Mirror failed ({exc}), trying next…")
+    return False
 
 
 def hz_to_mel(hz: float) -> float:
@@ -107,14 +137,25 @@ def extract_audio_mel_chunks(audio_path: Path, fps: int = 25, mel_step_size: int
     mag = np.abs(Zxx)
     fb = mel_filterbank(sr=target_sr, n_fft=n_fft, n_mels=80)
     mel = np.dot(fb, mag)
-    mel_db = 20.0 * np.log10(np.maximum(1e-5, mel))
-    mel_norm = np.clip((mel_db + 100.0) / 100.0, 0.0, 1.0)
+    mel_safe = np.maximum(1e-5, mel)
+    mel_scaled = np.log10(mel_safe) * 1.6 + 3.2
+    mel_scaled = np.clip(mel_scaled, -4.0, 4.0).astype(np.float32) * 2.0
 
-    # Frame-synchronized window extraction
     total_frames = int(len(wav) * fps / target_sr)
     mel_chunks = []
-    # 80 mel steps per second, so 80 / 25 = 3.2 mel steps per video frame
     mel_per_frame = 80.0 / float(fps)
+
+    samples_per_frame = target_sr / float(fps)
+    frame_rms = []
+    for f in range(total_frames):
+        st = int(f * samples_per_frame)
+        en = int((f + 1) * samples_per_frame)
+        ch = wav[st:en]
+        r = float(np.sqrt(np.mean(ch**2))) if len(ch) > 0 else 0.0
+        frame_rms.append(r)
+    frame_rms = np.array(frame_rms, dtype=np.float32)
+    norm_rms = np.clip(frame_rms / (frame_rms.max() + 1e-6), 0.0, 1.0)
+    smooth_rms = np.convolve(norm_rms, np.array([0.15, 0.7, 0.15], dtype=np.float32), mode="same")
 
     for frame_idx in range(total_frames):
         center_mel = int(frame_idx * mel_per_frame)
@@ -123,14 +164,14 @@ def extract_audio_mel_chunks(audio_path: Path, fps: int = 25, mel_step_size: int
 
         if start_mel < 0:
             pad_left = -start_mel
-            chunk = mel_norm[:, 0:max(0, end_mel)]
+            chunk = mel_scaled[:, 0:max(0, end_mel)]
             chunk = np.pad(chunk, ((0, 0), (pad_left, 0)), mode="edge")
-        elif end_mel > mel_norm.shape[1]:
-            pad_right = end_mel - mel_norm.shape[1]
-            chunk = mel_norm[:, start_mel:]
+        elif end_mel > mel_scaled.shape[1]:
+            pad_right = end_mel - mel_scaled.shape[1]
+            chunk = mel_scaled[:, start_mel:]
             chunk = np.pad(chunk, ((0, 0), (0, pad_right)), mode="edge")
         else:
-            chunk = mel_norm[:, start_mel:end_mel]
+            chunk = mel_scaled[:, start_mel:end_mel]
 
         if chunk.shape[1] != mel_step_size:
             chunk = np.pad(chunk, ((0, 0), (0, max(0, mel_step_size - chunk.shape[1]))), mode="edge")
@@ -138,7 +179,7 @@ def extract_audio_mel_chunks(audio_path: Path, fps: int = 25, mel_step_size: int
 
         mel_chunks.append(chunk.astype(np.float32))
 
-    return mel_chunks, total_frames, len(wav) / target_sr
+    return mel_chunks, smooth_rms, total_frames, len(wav) / target_sr
 
 
 def main() -> int:
@@ -188,7 +229,7 @@ def main() -> int:
         model_path = Path("/kaggle/working/eidomira/models/wav2lip_gan_96.onnx")
 
     try:
-        download_file(WAV2LIP_URL, model_path, "Wav2Lip-GAN 96")
+        download_file(WAV2LIP_URLS, model_path, "Wav2Lip-GAN 96")
     except Exception as exc:
         print(f"Note: Wav2Lip model download skipped ({exc})")
 
@@ -202,7 +243,7 @@ def main() -> int:
     # 1. Process Audio Mel Spectrogram
     print("\n[Step 1/4] Processing driving speech audio mel-spectrogram…")
     t0 = time.perf_counter()
-    mel_chunks, total_frames, duration = extract_audio_mel_chunks(options.audio, fps=options.fps)
+    mel_chunks, smooth_rms, total_frames, duration = extract_audio_mel_chunks(options.audio, fps=options.fps)
     print(f"  Extracted {total_frames} audio mel frames ({duration:.2f} seconds at {options.fps} fps)")
 
     # 2. Detect face and mouth coordinates
@@ -289,14 +330,24 @@ def main() -> int:
             pred_mouth = np.squeeze(raw_out).transpose(1, 2, 0)
             pred_mouth = np.clip(pred_mouth * 255.0, 0, 255).astype(np.uint8)
         else:
-            # Acoustic viseme kinematic modulation fallback
-            rms = np.mean(mel_chunk)
-            opening = int(np.clip(rms * 18.0, 0.0, 14.0))
+            # Dynamic anatomical speech viseme modulation:
+            energy = smooth_rms[idx]
+            opening = int(np.clip(energy * 26.0, 0, 22))
             pred_mouth = mouth_crop_resized.copy()
-            if opening > 1:
-                # Open oral aperture organically
-                pred_mouth[46:46+opening, 28:68] = cv2.GaussianBlur(pred_mouth[46:46+opening, 28:68], (5, 5), 0)
-                pred_mouth[46+opening//2:46+opening, 32:64] = (pred_mouth[46+opening//2:46+opening, 32:64] * 0.45).astype(np.uint8)
+            if opening >= 2:
+                lower_lip = mouth_crop_resized[52:, :].copy()
+                pred_mouth[52 + opening:, :] = lower_lip[:96 - (52 + opening), :]
+                cavity_y1 = 48
+                cavity_y2 = 48 + opening
+                cavity_x1 = 28
+                cavity_x2 = 68
+                pred_mouth[cavity_y1:cavity_y2, cavity_x1:cavity_x2] = (18, 14, 22)
+                teeth_h = min(6, opening // 2)
+                if teeth_h > 0:
+                    cv2.rectangle(pred_mouth, (cavity_x1 + 6, cavity_y1), (cavity_x2 - 6, cavity_y1 + teeth_h), (210, 215, 220), -1)
+                pred_mouth[cavity_y1-2:cavity_y2+2, cavity_x1-2:cavity_x2+2] = cv2.GaussianBlur(
+                    pred_mouth[cavity_y1-2:cavity_y2+2, cavity_x1-2:cavity_x2+2], (3, 3), 0
+                )
 
         # Scale predicted mouth back to original face resolution
         pred_mouth_full = cv2.resize(pred_mouth, (x2 - x1, y2 - y1), interpolation=cv2.INTER_LANCZOS4)
