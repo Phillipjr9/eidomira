@@ -225,25 +225,46 @@ def main():
         restored_512 = np.squeeze(raw).transpose(1, 2, 0)
         restored_512 = np.clip((restored_512 * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)[:, :, ::-1]
 
-        # 1. Lower GFPGAN de-aging dominance to preserve mature facial geometry:
-        base_enhanced_512 = cv2.addWeighted(restored_512, 0.50, resized_512, 0.50, 0)
+        # 1. Lower GFPGAN de-aging dominance:
+        # Give raw swapped face 60% dominance so GFPGAN cannot smooth away mature bone structure:
+        base_enhanced_512 = cv2.addWeighted(restored_512, 0.40, resized_512, 0.60, 0)
 
-        # 2. Extract and transfer authentic biological age lines (crow's feet & nasolabial folds):
+        # 2. Multi-scale biological age decomposition and injection:
         try:
             from insightface.utils import face_align
             src_crop_512, _ = face_align.norm_crop2(cv2.imread(str(src_path)), best_src.kps, 512)
             src_gray = cv2.cvtColor(src_crop_512, cv2.COLOR_BGR2GRAY).astype(np.float32)
-            src_low = cv2.GaussianBlur(src_gray, (9, 9), 0)
-            src_wrinkles = src_gray - src_low
 
-            # Mask wrinkle injection strictly to the eye corners (crow's feet) and smile lines.
-            # Leave forehead clean so lighting reflections do NOT turn into vertical crease lines:
-            wrinkle_zone = np.zeros((512, 512), dtype=np.float32)
-            wrinkle_zone[190:310, :] = 1.0  # Crow's feet and under-eye area
-            wrinkle_zone[310:440, 100:412] = 1.0  # Nasolabial smile lines
-            wrinkle_zone = cv2.GaussianBlur(wrinkle_zone, (31, 31), 0)
+            # Decompose into multi-scale frequency bands:
+            low_illum = cv2.GaussianBlur(src_gray, (45, 45), 0)
+            mid_blur = cv2.GaussianBlur(src_gray, (11, 11), 0)
 
-            enhanced_age = base_enhanced_512.astype(np.float32) + (src_wrinkles * wrinkle_zone)[..., None] * 0.70
+            # Mid-band holds deep nasolabial folds, under-eye bags, hooded lids, and jowl volume:
+            src_mid_depth = mid_blur - low_illum
+            # High-band holds fine crow's feet, wrinkles, and skin pores:
+            src_high_texture = src_gray - mid_blur
+
+            # Create anatomically mapped age feature zone:
+            age_zone = np.zeros((512, 512), dtype=np.float32)
+            # Under-eye bags, hollows, and hooded lids:
+            cv2.ellipse(age_zone, (192, 252), (48, 28), 0, 0, 360, 1.0, -1)
+            cv2.ellipse(age_zone, (320, 252), (48, 28), 0, 0, 360, 1.0, -1)
+            # Outer eye crow's feet:
+            cv2.ellipse(age_zone, (138, 240), (36, 26), 0, 0, 360, 1.0, -1)
+            cv2.ellipse(age_zone, (374, 240), (36, 26), 0, 0, 360, 1.0, -1)
+            # Deep nasolabial smile folds running from nose wings down past mouth:
+            cv2.ellipse(age_zone, (215, 365), (38, 60), 20, 0, 360, 1.0, -1)
+            cv2.ellipse(age_zone, (297, 365), (38, 60), -20, 0, 360, 1.0, -1)
+            # Lower cheek / jowl fullness & chin crease:
+            cv2.ellipse(age_zone, (180, 425), (35, 40), 10, 0, 360, 0.75, -1)
+            cv2.ellipse(age_zone, (332, 425), (35, 40), -10, 0, 360, 0.75, -1)
+            cv2.ellipse(age_zone, (256, 450), (45, 25), 0, 0, 360, 0.80, -1)
+
+            age_zone = cv2.GaussianBlur(age_zone, (25, 25), 0)
+
+            # Combined biological age signal: deep 3D structural depth + authentic surface texture
+            biological_age_signal = (src_mid_depth * 0.75 + src_high_texture * 0.85) * age_zone
+            enhanced_age = base_enhanced_512.astype(np.float32) + biological_age_signal[..., None]
             age_faithful_512 = np.clip(enhanced_age, 0, 255).astype(np.uint8)
         except Exception:
             age_faithful_512 = base_enhanced_512
