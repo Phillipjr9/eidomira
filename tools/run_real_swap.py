@@ -75,7 +75,7 @@ def download_file(url: str, destination: Path, label: str):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
-    parser.add_argument("--source", type=Path, default=ROOT / "static" / "human-01.jpg")
+    parser.add_argument("--source", type=Path, default=ROOT / "static" / "celebrity-01.jpg")
     parser.add_argument("--target", type=Path, default=ROOT / "static" / "human-02.jpg")
     parser.add_argument("--output", type=Path, default=ROOT / "swapped_result.jpg")
     parser.add_argument("--enhance", action="store_true", default=True, help="enable GFPGAN detail restoration & parser mask")
@@ -152,21 +152,14 @@ def main():
                 return path, rgb, best
         return None, None, None
 
-    h1 = ROOT / "static" / "human-01.jpg"
-    h2 = ROOT / "static" / "human-02.jpg"
-
-    all_portraits = [h1, h2]
-
-    print("Detecting and selecting source identity…")
-    src_path, src_rgb, best_src = find_face_image(all_portraits)
+    src_path, src_rgb, best_src = find_face_image([options.source, ROOT / "static" / "celebrity-01.jpg", ROOT / "static" / "human-01.jpg"])
     if best_src is None:
-        print("Error: could not find face in sample images.")
+        print("Error: could not find face in source image.")
         return 1
     print(f"Source face: {src_path.name} (bbox={[int(x) for x in best_src.bbox]})")
 
     print("Detecting target portrait…")
-    remaining = [p for p in all_portraits if p != src_path]
-    dst_path, dst_rgb, best_dst = find_face_image(remaining)
+    dst_path, dst_rgb, best_dst = find_face_image([options.target, ROOT / "static" / "human-02.jpg", ROOT / "static" / "human-01.jpg"])
     if best_dst is None:
         print("Error: could not find target face.")
         return 1
