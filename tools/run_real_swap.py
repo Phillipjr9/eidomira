@@ -215,10 +215,24 @@ def main():
         restored_512 = np.squeeze(raw).transpose(1, 2, 0)
         restored_512 = np.clip((restored_512 * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)[:, :, ::-1]
 
-        # 1. Preserve authentic age character & wrinkle lines (preventing GFPGAN from de-aging the subject):
-        age_faithful_512 = cv2.addWeighted(restored_512, 0.68, resized_512, 0.32, 0)
+        # 1. Lower GFPGAN de-aging dominance to preserve mature facial geometry:
+        base_enhanced_512 = cv2.addWeighted(restored_512, 0.48, resized_512, 0.52, 0)
 
-        # 2. Micro-texture sharpening to restore realistic skin pores, eyelashes, and authentic eye-crease depth
+        # 2. Extract and transfer genuine biological age lines (crow's feet, forehead creases, and mature pores) from source:
+        try:
+            from insightface.utils import face_align
+            src_crop_512, _ = face_align.norm_crop2(cv2.imread(str(src_path)), best_src.kps, 512)
+            src_gray = cv2.cvtColor(src_crop_512, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            src_low = cv2.GaussianBlur(src_gray, (9, 9), 0)
+            src_wrinkles = src_gray - src_low
+
+            # Inject source subject's authentic biological age wrinkles directly into skin:
+            enhanced_age = base_enhanced_512.astype(np.float32) + src_wrinkles[..., None] * 0.72
+            age_faithful_512 = np.clip(enhanced_age, 0, 255).astype(np.uint8)
+        except Exception:
+            age_faithful_512 = base_enhanced_512
+
+        # 3. Micro-texture sharpening to restore realistic skin pores, eyelashes, and authentic eye-crease depth
         gaussian = cv2.GaussianBlur(age_faithful_512, (0, 0), 1.8)
         crisp_512 = cv2.addWeighted(age_faithful_512, 1.40, gaussian, -0.40, 0)
 
