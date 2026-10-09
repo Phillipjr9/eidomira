@@ -226,6 +226,29 @@ def main():
     cv2.imwrite("/kaggle/working/swapped_result.jpg", out_bgr)
     cv2.imwrite("/kaggle/working/eidomira/swapped_result.jpg", out_bgr)
 
+    # Create a side-by-side 3-panel comparison: [Source] + [Target] + [Result]
+    try:
+        h_target = 600
+        def scale_h(img, h):
+            w = int(img.shape[1] * (h / img.shape[0]))
+            return cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+
+        s_vis = scale_h(cv2.imread(str(src_path)), h_target)
+        t_vis = scale_h(dst_bgr, h_target)
+        r_vis = scale_h(out_bgr, h_target)
+
+        cv2.putText(s_vis, f"SOURCE: {src_path.stem}", (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(t_vis, f"TARGET: {dst_path.stem}", (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(r_vis, "SWAPPED RESULT", (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+
+        comparison = np.hstack([s_vis, t_vis, r_vis])
+        cv2.imwrite("comparison.jpg", comparison)
+        cv2.imwrite("/kaggle/working/comparison.jpg", comparison)
+        cv2.imwrite("/kaggle/working/eidomira/comparison.jpg", comparison)
+        print("Generated side-by-side comparison: comparison.jpg")
+    except Exception as exc:
+        print(f"Comparison rendering skipped: {exc}")
+
     print("\n" + "=" * 50)
     print("  REAL NEURAL FACE SWAP COMPLETED SUCCESSFULLY")
     print("=" * 50)
