@@ -145,6 +145,10 @@ def main():
     server_healthy = False
     start_wait = time.time()
     while time.time() - start_wait < 35:
+        if server_proc.poll() is not None:
+            rest = server_proc.stdout.read()
+            print(f"\nBackend process exited with code {server_proc.returncode}:\n{rest}")
+            return 1
         line = server_proc.stdout.readline()
         if line:
             print(f"  [Backend] {line.strip()}")

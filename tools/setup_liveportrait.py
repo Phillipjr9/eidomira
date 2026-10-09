@@ -39,7 +39,7 @@ def main():
     subprocess.run([
         sys.executable, "-m", "pip", "install", "-q",
         "pyyaml", "scipy", "imageio", "imageio-ffmpeg", "albumentations", "tyro",
-        "huggingface_hub[cli]",
+        "aiortc", "av",
     ], check=True)
 
     # 3. Download pretrained weights from Hugging Face using official Python SDK
