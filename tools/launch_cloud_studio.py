@@ -88,16 +88,29 @@ def main():
         return 1
 
     # 4. Start Uvicorn Server in background
-    print("\nStarting Eidomira Neural Studio on port 8000…")
+    liveportrait_dir = Path("/kaggle/working/LivePortrait")
+    selected_backend = os.environ.get("STUDIO_BACKEND")
+    if not selected_backend:
+        if (liveportrait_dir / "src" / "live_portrait_wrapper.py").exists() or (ROOT / "third_party" / "LivePortrait" / "src").exists():
+            selected_backend = "liveportrait"
+        else:
+            selected_backend = "inswapper"
+
+    print(f"\nStarting Eidomira Neural Studio on port 8000 (Backend: {selected_backend.upper()})…")
     env = os.environ.copy()
-    env["STUDIO_BACKEND"] = "inswapper"
+    env["STUDIO_BACKEND"] = selected_backend
     env["STUDIO_ALLOWED_ORIGINS"] = "*"
     env["STUDIO_DEMO_LOGIN"] = "true"
     env["STUDIO_DEMO_PASSWORD"] = "eidomira-demo-2026"
     env["STUDIO_REQUIRE_SELF_VERIFICATION"] = "false"
     env["STUDIO_RESTORATION_VISIBILITY"] = "0.6"
     env["STUDIO_MODEL_PATH"] = str(model_path)
-    env["PYTHONPATH"] = str(ROOT) + (":" + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+    python_paths = [str(ROOT)]
+    if liveportrait_dir.exists():
+        python_paths.insert(0, str(liveportrait_dir))
+    if (ROOT / "third_party" / "LivePortrait").exists():
+        python_paths.insert(0, str(ROOT / "third_party" / "LivePortrait"))
+    env["PYTHONPATH"] = ":".join(python_paths) + (":" + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
     env["PYTHONUNBUFFERED"] = "1"
 
     # Pre-seed demo accounts in the database

@@ -15,9 +15,13 @@ except ImportError:
 #: `create_engine` falls through to the diagnostic engine, and a host that meant to run the
 #: neural stack quietly does not. That is the worst shape a configuration mistake can have.
 INSWAPPER_BACKEND = "inswapper"
+LIVEPORTRAIT_BACKEND = "liveportrait"
 
 
 def create_engine():
+    if settings.backend == LIVEPORTRAIT_BACKEND:
+        from .liveportrait import LivePortraitEngine
+        return LivePortraitEngine()
     if settings.backend == INSWAPPER_BACKEND:
         if not settings.model_path.exists():
             raise RuntimeError(f"Licensed model is missing: {settings.model_path}")
