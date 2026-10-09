@@ -193,7 +193,7 @@ def main() -> int:
         print(f"Note: Wav2Lip model download skipped ({exc})")
 
     import onnxruntime as ort
-    from app.device import execution_providers, describe_providers
+    from app.providers import execution_providers, describe_providers
 
     providers = list(execution_providers())
     provider_name = describe_providers(providers)
