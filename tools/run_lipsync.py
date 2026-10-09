@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 WAV2LIP_URL = "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/wav2lip_gan_96.onnx"
 DEFAULT_AUDIO = ROOT / "static" / "speech-elon.mp3"
-DEFAULT_FACE = ROOT / "output.jpg"
+DEFAULT_FACE = ROOT / "swapped_result.jpg"
 DEFAULT_OUTPUT = ROOT / "lipsync_elon.mp4"
 
 
@@ -134,7 +134,12 @@ def main() -> int:
     # Fallback face selection if default output doesn't exist yet
     face_path = options.face
     if not face_path.exists():
-        for cand in [Path("/kaggle/working/eidomira/output.jpg"),
+        for cand in [ROOT / "swapped_result.jpg",
+                     Path("/kaggle/working/eidomira/swapped_result.jpg"),
+                     ROOT / "comparison.jpg",
+                     Path("/kaggle/working/eidomira/comparison.jpg"),
+                     ROOT / "output.jpg",
+                     Path("/kaggle/working/eidomira/output.jpg"),
                      ROOT / "static" / "celebrity-01.jpg",
                      ROOT / "static" / "businessman-neutral.jpg"]:
             if cand.exists():
@@ -298,22 +303,24 @@ def main() -> int:
             "-i", str(temp_silent_mp4),
             "-i", str(options.audio),
             "-c:v", "libx264",
+            "-preset", "veryfast",
             "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
             "-c:a", "aac",
             "-b:a", "192k",
             "-shortest",
             str(options.output),
         ]
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode == 0:
-            print(f"  Successfully encoded talking video with audio: {options.output}")
+            print(f"  Successfully encoded H.264 talking video with audio: {options.output}")
             if temp_silent_mp4.exists():
                 temp_silent_mp4.unlink()
         else:
-            print("  FFmpeg multiplexing notice, saving silent video as output.")
+            print(f"  FFmpeg error ({res.returncode}):\n{res.stderr}")
             shutil.move(str(temp_silent_mp4), str(options.output))
     else:
-        print("  FFmpeg not found in PATH; saving visual output.")
+        print("  FFmpeg not found in PATH; saving raw visual output.")
         shutil.move(str(temp_silent_mp4), str(options.output))
 
     total_time = time.perf_counter() - t0
