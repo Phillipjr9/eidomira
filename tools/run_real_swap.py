@@ -165,12 +165,25 @@ def main():
         return 1
     print(f"Target face: {dst_path.name} (bbox={[int(x) for x in best_dst.bbox]})")
 
-    print(f"Running full-coverage neural face swap ({src_path.name} -> {dst_path.name})…")
+    print(f"Running multi-pass deep identity face swap ({src_path.name} -> {dst_path.name})…")
     t0 = time.perf_counter()
     dst_bgr = cv2.imread(str(dst_path))
 
-    # Extract pure 100% source-swapped face without harsh inner erosion
-    bgr_fake, M = engine.swapper.get(dst_bgr, best_dst, best_src, paste_back=False)
+    # Pass 1: Initial identity projection
+    print("  [Stage 1/3] Initial identity projection…")
+    pass1_bgr = engine.swapper.get(dst_bgr, best_dst, best_src, paste_back=True)
+
+    # Pass 2: Second identity injection to break the 30% ceiling and lock in bone structure
+    faces_p1 = engine._faces(cv2.cvtColor(pass1_bgr, cv2.COLOR_BGR2RGB))
+    if not faces_p1:
+        faces_p1 = engine.analyzer.get(pass1_bgr)
+
+    if faces_p1:
+        best_p1 = max(faces_p1, key=lambda f: (f.bbox[2]-f.bbox[0]) * (f.bbox[3]-f.bbox[1]))
+        print("  [Stage 2/3] Second identity injection (reinforcing eye angle, jawline, and nose contours)…")
+        bgr_fake, M = engine.swapper.get(pass1_bgr, best_p1, best_src, paste_back=False)
+    else:
+        bgr_fake, M = engine.swapper.get(dst_bgr, best_dst, best_src, paste_back=False)
 
     # State-of-the-art 512x512 Full-Coverage Detail Restoration
     restorer_path = ROOT / "models" / "gfpgan_1.4.onnx"
@@ -178,7 +191,7 @@ def main():
         restorer_path = Path("/kaggle/working/eidomira/models/gfpgan_1.4.onnx")
 
     if restorer_path.exists():
-        print("Applying 512x512 full-coverage HD detail restoration…")
+        print("  [Stage 3/3] Canonical FFHQ-512 HD detail restoration…")
         import onnxruntime as ort
         resized_512 = cv2.resize(bgr_fake, (512, 512), interpolation=cv2.INTER_LANCZOS4)
         tensor = ((resized_512[:, :, ::-1].astype(np.float32) / 255.0) - 0.5) / 0.5
@@ -228,7 +241,7 @@ def main():
             mask_512, IM_512, (dst_bgr.shape[1], dst_bgr.shape[0])
         )[..., None]
 
-        out_bgr = (restored_full.astype(np.float32) * mask_full + dst_bgr.astype(np.float32) * (1.0 - mask_full)).astype(np.uint8)
+        out_bgr = (restored_full.astype(np.float32) * mask_full + pass1_bgr.astype(np.float32) * (1.0 - mask_full)).astype(np.uint8)
     else:
         IM = cv2.invertAffineTransform(M)
         restored_full = cv2.warpAffine(
