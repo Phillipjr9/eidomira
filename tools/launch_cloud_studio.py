@@ -87,6 +87,8 @@ def main():
     env["STUDIO_DEMO_ENABLED"] = "true"
     env["STUDIO_REQUIRE_SELF_VERIFICATION"] = "false"
     env["STUDIO_RESTORATION_VISIBILITY"] = "0.6"
+    env["STUDIO_MODEL_PATH"] = str(model_path)
+    env["PYTHONPATH"] = str(ROOT) + (":" + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
     env["PYTHONUNBUFFERED"] = "1"
 
     server_cmd = [
@@ -96,11 +98,31 @@ def main():
         "--port", "8000",
         "--workers", "1",
     ]
-    server_proc = subprocess.Popen(server_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    server_proc = subprocess.Popen(
+        server_cmd,
+        cwd=str(ROOT),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
 
-    # Wait for server to listen on 8000
-    time.sleep(3)
-    print("Backend server initialized.")
+    # Wait for server to finish initializing and start listening
+    server_healthy = False
+    start_wait = time.time()
+    while time.time() - start_wait < 35:
+        line = server_proc.stdout.readline()
+        if line:
+            print(f"  [Backend] {line.strip()}")
+            if "Application startup complete" in line or "Uvicorn running on" in line:
+                server_healthy = True
+                break
+        time.sleep(0.2)
+
+    if not server_healthy:
+        print("Warning: Backend took longer than expected to initialize. Check logs above.")
+    else:
+        print("Backend server verified and listening on port 8000.")
 
     # 5. Start Cloudflare Tunnel
     print("Opening secure HTTPS tunnel for camera access…")
