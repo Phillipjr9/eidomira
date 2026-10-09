@@ -177,6 +177,12 @@ def main():
     src_kps_norm = (best_src.kps - src_center) * (dst_scale / src_scale) + dst_center
     # Pull eye distance, eyebrow height, and nose-mouth proportions 60% toward source identity
     adapted_kps = (best_dst.kps * 0.40 + src_kps_norm * 0.60).astype(np.float32)
+
+    # Expand lower jaw/mouth width by 10% to reflect Elon Musk's wider square mandible:
+    mouth_center = (adapted_kps[3] + adapted_kps[4]) / 2.0
+    adapted_kps[3] = mouth_center + (adapted_kps[3] - mouth_center) * 1.10
+    adapted_kps[4] = mouth_center + (adapted_kps[4] - mouth_center) * 1.10
+
     best_dst.kps = adapted_kps
     best_dst['kps'] = adapted_kps
 
@@ -236,17 +242,33 @@ def main():
         gaussian = cv2.GaussianBlur(age_faithful_512, (0, 0), 1.8)
         crisp_512 = cv2.addWeighted(age_faithful_512, 1.40, gaussian, -0.40, 0)
 
-        # 2. Authentic skin tone & complexion matching to source identity
+        # 4. Color & Luminosity matching directly to TARGET image (removes pale/yellow cast so neck & forehead match 100%)
         try:
             from insightface.utils import face_align
-            src_crop, _ = face_align.norm_crop2(cv2.imread(str(src_path)), best_src.kps, 512)
-            src_lab = cv2.cvtColor(src_crop, cv2.COLOR_BGR2LAB).astype(np.float32)
+            tgt_crop, _ = face_align.norm_crop2(dst_bgr, best_dst.kps, 512)
+            tgt_lab = cv2.cvtColor(tgt_crop, cv2.COLOR_BGR2LAB).astype(np.float32)
             dst_lab = cv2.cvtColor(crisp_512, cv2.COLOR_BGR2LAB).astype(np.float32)
-            for c in (1, 2):  # a and b channels (warmth/tint)
-                s_mean = src_lab[:, :, c].mean()
+            for c in range(3):
+                t_mean = tgt_lab[:, :, c].mean()
+                t_std = tgt_lab[:, :, c].std() + 1e-5
                 d_mean = dst_lab[:, :, c].mean()
-                dst_lab[:, :, c] = np.clip(dst_lab[:, :, c] + (s_mean - d_mean) * 0.45, 0, 255)
+                d_std = dst_lab[:, :, c].std() + 1e-5
+                dst_lab[:, :, c] = (dst_lab[:, :, c] - d_mean) * (t_std / d_std) * 0.70 + (dst_lab[:, :, c] - d_mean) * 0.30 + t_mean
+                dst_lab[:, :, c] = np.clip(dst_lab[:, :, c], 0, 255)
             crisp_512 = cv2.cvtColor(dst_lab.astype(np.uint8), cv2.COLOR_LAB2BGR)
+        except Exception:
+            pass
+
+        # 5. Forehead specular highlight attenuation (removes hot shine on upper forehead):
+        try:
+            forehead_mask = np.zeros((512, 512), dtype=np.float32)
+            cv2.ellipse(forehead_mask, (256, 175), (145, 85), 0, 0, 360, 1.0, -1)
+            forehead_mask = cv2.GaussianBlur(forehead_mask, (41, 41), 0)
+            crisp_hsv = cv2.cvtColor(crisp_512, cv2.COLOR_BGR2HSV).astype(np.float32)
+            v = crisp_hsv[:, :, 2]
+            excess_glare = np.maximum(v - 165.0, 0.0) * forehead_mask * 0.45
+            crisp_hsv[:, :, 2] = np.clip(v - excess_glare, 0, 255)
+            crisp_512 = cv2.cvtColor(crisp_hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
         except Exception:
             pass
 
@@ -260,16 +282,16 @@ def main():
             borderMode=cv2.BORDER_REPLICATE
         )
 
-        # Full-face coverage mask (covers forehead, cheeks, jawline, and chin)
+        # Full-face coverage mask with wide jawline contours
         mask_512 = np.zeros((512, 512), dtype=np.float32)
-        cv2.ellipse(mask_512, (256, 260), (225, 245), 0, 0, 360, 1.0, -1)
+        cv2.ellipse(mask_512, (256, 260), (236, 245), 0, 0, 360, 1.0, -1)
         mask_512 = cv2.GaussianBlur(mask_512, (45, 45), 0)
 
         mask_full = cv2.warpAffine(
             mask_512, IM_512, (dst_bgr.shape[1], dst_bgr.shape[0])
         )[..., None]
 
-        out_bgr = (restored_full.astype(np.float32) * mask_full + pass1_bgr.astype(np.float32) * (1.0 - mask_full)).astype(np.uint8)
+        out_bgr = (restored_full.astype(np.float32) * mask_full + dst_bgr.astype(np.float32) * (1.0 - mask_full)).astype(np.uint8)
     else:
         IM = cv2.invertAffineTransform(M)
         restored_full = cv2.warpAffine(
