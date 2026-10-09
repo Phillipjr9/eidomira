@@ -50,13 +50,13 @@ def main():
     print("  EIDOMIRA CLOUD GPU LIVE WEBRTC STUDIO")
     print("=" * 72)
 
-    # 0. Ensure server dependencies are installed (aiortc, av, uvicorn)
+    # 0. Ensure WebRTC dependencies are installed
     try:
         import aiortc
-        import uvicorn
     except ImportError:
-        print("Installing WebRTC server dependencies (aiortc, av, uvicorn)…")
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(ROOT / "requirements.txt")], check=True)
+        print("Installing WebRTC streaming libraries (aiortc, av)…")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir", "aiortc", "av"], check=True)
+        print("WebRTC libraries ready.")
 
     # 1. Preload CUDA
     from tools.run_real_swap import preload_cuda, download_file, MODEL_URL, RESTORER_URL
