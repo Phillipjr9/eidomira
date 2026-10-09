@@ -58,22 +58,34 @@ def main():
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir", "aiortc", "av"], check=True)
         print("WebRTC libraries ready.")
 
+    # Determine neural backend
+    liveportrait_dir = Path("/kaggle/working/LivePortrait")
+    selected_backend = os.environ.get("STUDIO_BACKEND")
+    if not selected_backend:
+        if (liveportrait_dir / "src" / "live_portrait_wrapper.py").exists() or (ROOT / "third_party" / "LivePortrait" / "src").exists():
+            selected_backend = "liveportrait"
+        else:
+            selected_backend = "inswapper"
+
+    print(f"\nTarget Neural Backend: {selected_backend.upper()}")
+
     # 1. Preload CUDA
-    from tools.run_real_swap import preload_cuda, download_file, MODEL_URL, RESTORER_URL
-    preload_cuda()
+    try:
+        from tools.run_real_swap import preload_cuda
+        preload_cuda()
+    except Exception:
+        pass
 
-    # 2. Ensure models are present
+    # 2. Only download legacy inswapper models if inswapper backend is explicitly chosen
     model_path = ROOT / "models" / "inswapper_128.onnx"
-    restorer_path = ROOT / "models" / "gfpgan_1.4.onnx"
-    try:
-        download_file(MODEL_URL, model_path, "InSwapper-128")
-    except Exception as exc:
-        print(f"Model notice: {exc}")
-
-    try:
-        download_file(RESTORER_URL, restorer_path, "GFPGAN-1.4")
-    except Exception as exc:
-        print(f"Restorer notice: {exc}")
+    if selected_backend == "inswapper":
+        from tools.run_real_swap import download_file, MODEL_URL, RESTORER_URL
+        restorer_path = ROOT / "models" / "gfpgan_1.4.onnx"
+        try:
+            download_file(MODEL_URL, model_path, "InSwapper-128")
+            download_file(RESTORER_URL, restorer_path, "GFPGAN-1.4")
+        except Exception as exc:
+            print(f"Model notice: {exc}")
 
     # 3. Setup Cloudflare Tunnel binary
     cloudflared_path = download_cloudflared()
@@ -88,14 +100,6 @@ def main():
         return 1
 
     # 4. Start Uvicorn Server in background
-    liveportrait_dir = Path("/kaggle/working/LivePortrait")
-    selected_backend = os.environ.get("STUDIO_BACKEND")
-    if not selected_backend:
-        if (liveportrait_dir / "src" / "live_portrait_wrapper.py").exists() or (ROOT / "third_party" / "LivePortrait" / "src").exists():
-            selected_backend = "liveportrait"
-        else:
-            selected_backend = "inswapper"
-
     print(f"\nStarting Eidomira Neural Studio on port 8000 (Backend: {selected_backend.upper()})…")
     env = os.environ.copy()
     env["STUDIO_BACKEND"] = selected_backend
