@@ -68,7 +68,16 @@ def main():
         print(f"Restorer notice: {exc}")
 
     # 3. Setup Cloudflare Tunnel binary
-    download_cloudflared()
+    cloudflared_path = download_cloudflared()
+    if cloudflared_path is None or not Path(cloudflared_path).exists():
+        for cand in [Path("/kaggle/working/cloudflared"), ROOT / "cloudflared", Path("/usr/local/bin/cloudflared")]:
+            if cand.exists():
+                cloudflared_path = cand
+                break
+
+    if cloudflared_path is None or not Path(cloudflared_path).exists():
+        print("Error: Cloudflare tunnel binary not found.", file=sys.stderr)
+        return 1
 
     # 4. Start Uvicorn Server in background
     print("\nStarting Eidomira Neural Studio on port 8000…")
@@ -96,7 +105,7 @@ def main():
     # 5. Start Cloudflare Tunnel
     print("Opening secure HTTPS tunnel for camera access…")
     tunnel_cmd = [
-        str(CLOUDFLARED_BIN), "tunnel",
+        str(cloudflared_path), "tunnel",
         "--url", "http://127.0.0.1:8000",
     ]
     tunnel_proc = subprocess.Popen(tunnel_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
