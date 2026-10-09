@@ -29,34 +29,41 @@ CLOUDFLARED_BIN = ROOT / "cloudflared"
 
 
 def download_cloudflared():
-    for p in [CLOUDFLARED_BIN, Path("/kaggle/working/cloudflared"), Path("/usr/local/bin/cloudflared")]:
+    for p in [Path("/kaggle/working/cloudflared"), CLOUDFLARED_BIN, Path("/usr/local/bin/cloudflared")]:
         if p.exists() and p.stat().st_size > 1_000_000:
             return p
-    print("Downloading Cloudflare Tunnel binary…")
+    print("Downloading Cloudflare Tunnel binary…", flush=True)
+    target = Path("/kaggle/working/cloudflared") if Path("/kaggle/working").exists() else CLOUDFLARED_BIN
+    target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        req = urllib.request.Request(CLOUDFLARED_URL, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=120) as resp, CLOUDFLARED_BIN.open("wb") as f:
-            shutil.copyfileobj(resp, f)
-        CLOUDFLARED_BIN.chmod(0o755)
-        print("Cloudflare Tunnel ready.")
-        return CLOUDFLARED_BIN
+        subprocess.run(["wget", "-q", "-c", CLOUDFLARED_URL, "-O", str(target)], check=True)
+        target.chmod(0o755)
+        print("Cloudflare Tunnel ready.", flush=True)
+        return target
+    except Exception:
+        pass
+    try:
+        subprocess.run(["curl", "-sL", CLOUDFLARED_URL, "-o", str(target)], check=True)
+        target.chmod(0o755)
+        print("Cloudflare Tunnel ready.", flush=True)
+        return target
     except Exception as exc:
-        print(f"Cloudflare download notice: {exc}")
+        print(f"Cloudflare download notice: {exc}", flush=True)
         return None
 
 
 def main():
-    print("=" * 72)
-    print("  EIDOMIRA CLOUD GPU LIVE WEBRTC STUDIO")
-    print("=" * 72)
+    print("=" * 72, flush=True)
+    print("  EIDOMIRA CLOUD GPU LIVE WEBRTC STUDIO", flush=True)
+    print("=" * 72, flush=True)
 
     # 0. Verify WebRTC dependencies
     try:
         import aiortc
         import av
-        print("WebRTC streaming dependencies verified.")
+        print("WebRTC streaming dependencies verified.", flush=True)
     except ImportError:
-        print("Notice: aiortc/av streaming dependencies not imported.")
+        print("Notice: aiortc/av streaming dependencies not imported.", flush=True)
 
     # Determine neural backend
     liveportrait_dir = Path("/kaggle/working/LivePortrait")
@@ -67,14 +74,15 @@ def main():
         else:
             selected_backend = "inswapper"
 
-    print(f"\nTarget Neural Backend: {selected_backend.upper()}")
+    print(f"\nTarget Neural Backend: {selected_backend.upper()}", flush=True)
 
-    # 1. Preload CUDA
-    try:
-        from tools.run_real_swap import preload_cuda
-        preload_cuda()
-    except Exception:
-        pass
+    # 1. Preload CUDA only for legacy inswapper
+    if selected_backend == "inswapper":
+        try:
+            from tools.run_real_swap import preload_cuda
+            preload_cuda()
+        except Exception:
+            pass
 
     # 2. Only download legacy inswapper models if inswapper backend is explicitly chosen
     model_path = ROOT / "models" / "inswapper_128.onnx"

@@ -75,6 +75,11 @@ class LivePortraitEngine(FaceSwapEngine):
             self.inference_cfg = InferenceConfig()
             self.crop_cfg = CropConfig()
 
+            if not weights_dir:
+                cand = Path("/kaggle/working/LivePortrait/pretrained_weights")
+                if cand.exists():
+                    weights_dir = cand
+
             if weights_dir:
                 w_path = Path(weights_dir)
                 self.inference_cfg.checkpoint_F = str(w_path / "liveportrait" / "base_models" / "appearance_feature_extractor.pth")
@@ -82,6 +87,8 @@ class LivePortraitEngine(FaceSwapEngine):
                 self.inference_cfg.checkpoint_G = str(w_path / "liveportrait" / "base_models" / "spade_generator.pth")
                 self.inference_cfg.checkpoint_W = str(w_path / "liveportrait" / "base_models" / "warping_module.pth")
                 self.inference_cfg.checkpoint_S = str(w_path / "liveportrait" / "retargeting_models" / "stitching_retargeting_module.pth")
+                self.crop_cfg.landmark_ckpt_path = str(w_path / "liveportrait" / "landmark.onnx")
+                self.crop_cfg.insightface_root = str(w_path / "insightface")
 
             self.inference_cfg.device_id = self.device_id
             self.inference_cfg.flag_pasteback = self.flag_pasteback
