@@ -35,10 +35,11 @@ def main():
         print(f"LivePortrait repository already present at {TARGET_DIR}")
 
     # 2. Install required packages
-    print("\nInstalling LivePortrait dependencies…")
+    print("\nInstalling LivePortrait and Studio dependencies…")
     subprocess.run([
-        sys.executable, "-m", "pip", "install", "-q",
+        sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
         "pyyaml", "scipy", "imageio", "imageio-ffmpeg", "albumentations", "tyro",
+        "fastapi", "uvicorn", "pydantic-settings", "python-multipart", "PyJWT", "argon2-cffi",
         "aiortc", "av",
     ], check=True)
 

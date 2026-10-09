@@ -57,13 +57,20 @@ def main():
     print("  EIDOMIRA CLOUD GPU LIVE WEBRTC STUDIO", flush=True)
     print("=" * 72, flush=True)
 
-    # 0. Verify WebRTC dependencies
+    # 0. Verify WebRTC & Studio dependencies
     try:
         import aiortc
         import av
-        print("WebRTC streaming dependencies verified.", flush=True)
+        import pydantic_settings
+        import argon2
+        print("Studio dependencies verified.", flush=True)
     except ImportError:
-        print("Notice: aiortc/av streaming dependencies not imported.", flush=True)
+        print("Installing studio dependencies (pydantic-settings, argon2, aiortc, av)…", flush=True)
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
+            "pydantic-settings", "argon2-cffi", "aiortc", "av", "python-multipart", "PyJWT",
+        ], check=True)
+        print("Studio dependencies installed.", flush=True)
 
     # Determine neural backend
     liveportrait_dir = Path("/kaggle/working/LivePortrait")
