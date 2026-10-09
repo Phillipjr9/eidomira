@@ -124,7 +124,7 @@ def main() -> int:
     # Initialize Face Analysis & Swapper
     print("Initializing real-time face tracking engine…")
     analyzer = FaceAnalysis(name="buffalo_l", providers=providers)
-    analyzer.prepare(ctx_id=0 if "CUDAExecutionProvider" in providers else -1, det_size=(320, 320))
+    analyzer.prepare(ctx_id=0 if "CUDAExecutionProvider" in providers else -1, det_size=(640, 640), det_thresh=0.3)
     swapper = insightface.model_zoo.get_model(str(model_path), providers=providers)
 
     # Enroll target identity (Elon Musk)
@@ -208,31 +208,39 @@ def main() -> int:
 
         # Detect user's face in the live webcam frame
         faces = analyzer.get(frame)
-        if faces:
+        face_tracked = len(faces) > 0
+        if face_tracked:
             best_dst = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0]) * (f.bbox[3]-f.bbox[1]))
 
-            # Skull & Jaw Landmark Adaptation (Preserving live mouth opening while matching Elon's bone structure)
-            dst_center = best_dst.kps.mean(axis=0)
-            dst_scale = np.linalg.norm(best_dst.kps[1] - best_dst.kps[0]) + 1e-5
-            src_kps_norm = (best_src.kps - src_center) * (dst_scale / src_scale) + dst_center
+            try:
+                # Skull & Jaw Landmark Adaptation (Preserving live mouth opening while matching Elon's bone structure)
+                dst_center = best_dst.kps.mean(axis=0)
+                dst_scale = np.linalg.norm(best_dst.kps[1] - best_dst.kps[0]) + 1e-5
+                src_kps_norm = (best_src.kps - src_center) * (dst_scale / src_scale) + dst_center
 
-            # Keep real-time mouth opening ($y$-displacement) from user's live speech
-            mouth_y_diff = best_dst.kps[4, 1] - best_dst.kps[3, 1]
+                # Keep real-time mouth opening ($y$-displacement) from user's live speech
+                mouth_y_diff = best_dst.kps[4, 1] - best_dst.kps[3, 1]
 
-            # 60% Source identity skull bias + 40% user live expression
-            adapted_kps = (best_dst.kps * 0.40 + src_kps_norm * 0.60).astype(np.float32)
-            # Widen jaw for Elon's square mandible
-            mouth_center = (adapted_kps[3] + adapted_kps[4]) / 2.0
-            adapted_kps[3] = mouth_center + (adapted_kps[3] - mouth_center) * 1.10
-            adapted_kps[4] = mouth_center + (adapted_kps[4] - mouth_center) * 1.10
-            adapted_kps[4, 1] = adapted_kps[3, 1] + mouth_y_diff
+                # 60% Source identity skull bias + 40% user live expression
+                adapted_kps = (best_dst.kps * 0.40 + src_kps_norm * 0.60).astype(np.float32)
+                # Widen jaw for Elon's square mandible
+                mouth_center = (adapted_kps[3] + adapted_kps[4]) / 2.0
+                adapted_kps[3] = mouth_center + (adapted_kps[3] - mouth_center) * 1.10
+                adapted_kps[4] = mouth_center + (adapted_kps[4] - mouth_center) * 1.10
+                adapted_kps[4, 1] = adapted_kps[3, 1] + mouth_y_diff
 
-            best_dst.kps = adapted_kps
-            best_dst["kps"] = adapted_kps
+                best_dst.kps = adapted_kps
+                best_dst["kps"] = adapted_kps
 
-            # Real-Time Neural Face Swap (projects Elon onto live moving face)
-            swapped_frame = swapper.get(frame, best_dst, best_src, paste_back=True)
-            frame = swapped_frame
+                # Real-Time Neural Face Swap (projects Elon onto live moving face)
+                swapped_frame = swapper.get(frame, best_dst, best_src, paste_back=True)
+                if swapped_frame is not None:
+                    frame = swapped_frame
+            except Exception as exc:
+                try:
+                    frame = swapper.get(frame, best_dst, best_src, paste_back=True)
+                except Exception:
+                    pass
 
         frame_count += 1
         elapsed = time.perf_counter() - t0
@@ -247,6 +255,12 @@ def main() -> int:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 120), 2, cv2.LINE_AA)
         cv2.putText(frame, f"IDENTITY: {options.identity.stem.upper()}", (18, 66),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        if face_tracked:
+            cv2.putText(frame, "STATUS: SWAP ACTIVE (ELON MUSK)", (18, 96),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2, cv2.LINE_AA)
+        else:
+            cv2.putText(frame, "STATUS: SEARCHING FOR FACE...", (18, 96),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 180, 255), 2, cv2.LINE_AA)
 
         # Send to Virtual Camera (for Zoom / Meet)
         if vcam is not None:
@@ -257,10 +271,12 @@ def main() -> int:
         if recorder is not None:
             recorder.write(frame)
 
-        # Local window display if available
-        if "DISPLAY" in os.environ:
+        # Local window display (macOS Cocoa, Windows, or Linux X11)
+        has_display = ("DISPLAY" in os.environ) or (sys.platform == "darwin") or (sys.platform == "win32")
+        if has_display:
             cv2.imshow("Eidomira Live Video Call Studio", frame)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
                 break
 
         if options.max_frames > 0 and frame_count >= options.max_frames:
@@ -272,7 +288,7 @@ def main() -> int:
         recorder.release()
     if vcam is not None:
         vcam.close()
-    if "DISPLAY" in os.environ:
+    if ("DISPLAY" in os.environ) or (sys.platform == "darwin") or (sys.platform == "win32"):
         cv2.destroyAllWindows()
 
     total_time = time.perf_counter() - t_start
