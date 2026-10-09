@@ -14,11 +14,19 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
+
+# Ensure immediate line flushing in Jupyter/Kaggle environments
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -148,31 +156,26 @@ def main():
         server_cmd,
         cwd=str(ROOT),
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
     )
 
-    # Wait for server to finish initializing and start listening
+    print("Waiting for neural models to mount and port 8000 to listen…", flush=True)
     server_healthy = False
     start_wait = time.time()
-    while time.time() - start_wait < 35:
+    while time.time() - start_wait < 60:
         if server_proc.poll() is not None:
-            rest = server_proc.stdout.read()
-            print(f"\nBackend process exited with code {server_proc.returncode}:\n{rest}")
+            print(f"\nBackend process exited with code {server_proc.returncode}!", flush=True)
             return 1
-        line = server_proc.stdout.readline()
-        if line:
-            print(f"  [Backend] {line.strip()}")
-            if "Application startup complete" in line or "Uvicorn running on" in line:
+        try:
+            with socket.create_connection(("127.0.0.1", 8000), timeout=1.0):
                 server_healthy = True
                 break
-        time.sleep(0.2)
+        except (OSError, ConnectionRefusedError):
+            time.sleep(1.0)
 
     if not server_healthy:
-        print("Warning: Backend took longer than expected to initialize. Check logs above.")
+        print("Warning: Backend took longer than expected to initialize. Check logs above.", flush=True)
     else:
-        print("Backend server verified and listening on port 8000.")
+        print("✅ Backend server verified and listening on port 8000.", flush=True)
 
     # 5. Start Cloudflare Tunnel
     print("Opening secure HTTPS tunnel for camera access…")
