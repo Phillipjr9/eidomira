@@ -217,9 +217,12 @@ def main():
         restored_512 = np.squeeze(raw).transpose(1, 2, 0)
         restored_512 = np.clip((restored_512 * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)[:, :, ::-1]
 
-        # 1. Micro-texture sharpening to restore realistic skin pores, eyelashes, and iris depth
-        gaussian = cv2.GaussianBlur(restored_512, (0, 0), 1.8)
-        crisp_512 = cv2.addWeighted(restored_512, 1.35, gaussian, -0.35, 0)
+        # 1. Preserve authentic age character & wrinkle lines (preventing GFPGAN from de-aging the subject):
+        age_faithful_512 = cv2.addWeighted(restored_512, 0.68, resized_512, 0.32, 0)
+
+        # 2. Micro-texture sharpening to restore realistic skin pores, eyelashes, and authentic eye-crease depth
+        gaussian = cv2.GaussianBlur(age_faithful_512, (0, 0), 1.8)
+        crisp_512 = cv2.addWeighted(age_faithful_512, 1.40, gaussian, -0.40, 0)
 
         # 2. Authentic skin tone & complexion matching to source identity
         try:
