@@ -76,7 +76,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--source", type=Path, default=ROOT / "static" / "celebrity-01.jpg")
-    parser.add_argument("--target", type=Path, default=ROOT / "static" / "human-02.jpg")
+    parser.add_argument("--target", type=Path, default=ROOT / "static" / "businessman-neutral.jpg")
     parser.add_argument("--output", type=Path, default=ROOT / "swapped_result.jpg")
     parser.add_argument("--enhance", action="store_true", default=True, help="enable GFPGAN detail restoration & parser mask")
     options = parser.parse_args()
@@ -159,7 +159,7 @@ def main():
     print(f"Source face: {src_path.name} (bbox={[int(x) for x in best_src.bbox]})")
 
     print("Detecting target portrait…")
-    dst_path, dst_rgb, best_dst = find_face_image([options.target, ROOT / "static" / "human-02.jpg", ROOT / "static" / "human-01.jpg"])
+    dst_path, dst_rgb, best_dst = find_face_image([options.target, ROOT / "static" / "businessman-neutral.jpg", ROOT / "static" / "human-02.jpg"])
     if best_dst is None:
         print("Error: could not find target face.")
         return 1
