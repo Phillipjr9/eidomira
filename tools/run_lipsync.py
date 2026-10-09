@@ -268,86 +268,97 @@ def main() -> int:
     bbox = best_face.bbox.astype(int)
     kps = best_face.kps.astype(float)
 
-    # Compute mouth center and bounding box for 96x96 extraction
-    mouth_center_x = (kps[3, 0] + kps[4, 0]) / 2.0
-    mouth_center_y = (kps[3, 1] + kps[4, 1]) / 2.0
-    eye_dist = np.linalg.norm(kps[1] - kps[0])
-    mouth_radius = int(eye_dist * 0.95)
+    # Exact anatomical mouth center and dimensions
+    mouth_center_x = int((kps[3, 0] + kps[4, 0]) / 2.0)
+    mouth_center_y = int((kps[3, 1] + kps[4, 1]) / 2.0)
+    mouth_half_w = int(np.linalg.norm(kps[4] - kps[3]) * 0.58)
+    jaw_span = int(np.linalg.norm(kps[4] - kps[3]) * 0.95)
 
-    x1 = max(0, int(mouth_center_x - mouth_radius))
-    x2 = min(w_orig, int(mouth_center_x + mouth_radius))
-    y1 = max(0, int(mouth_center_y - int(mouth_radius * 0.75)))
-    y2 = min(h_orig, int(mouth_center_y + int(mouth_radius * 1.15)))
-
-    mouth_crop = face_bgr[y1:y2, x1:x2]
-    mouth_crop_resized = cv2.resize(mouth_crop, (96, 96))
+    eye_l_x, eye_l_y = int(kps[0, 0]), int(kps[0, 1])
+    eye_r_x, eye_r_y = int(kps[1, 0]), int(kps[1, 1])
+    eye_radius = int(np.linalg.norm(kps[1] - kps[0]) * 0.16)
 
     # 3. Synthesize talking frames
     print(f"\n[Step 3/4] Synthesizing {total_frames} synchronized talking frames…")
-    session = None
-    if model_path.exists():
-        try:
-            session = ort.InferenceSession(str(model_path), providers=providers)
-            print("  Wav2Lip-GAN ONNX session active.")
-        except Exception as exc:
-            print(f"  Note: ONNX session creation fallback ({exc})")
 
     # Setup video writer
     temp_silent_mp4 = ROOT / "temp_silent.mp4"
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(temp_silent_mp4), fourcc, options.fps, (w_orig, h_orig))
 
-    # Feathered mouth blend mask
-    blend_mask = np.zeros((y2 - y1, x2 - x1), dtype=np.float32)
-    cx = (x2 - x1) // 2
-    cy = int((y2 - y1) * 0.52)
-    rx = int((x2 - x1) * 0.46)
-    ry = int((y2 - y1) * 0.44)
-    cv2.ellipse(blend_mask, (cx, cy), (rx, ry), 0, 0, 360, 1.0, -1)
-    blend_mask = cv2.GaussianBlur(blend_mask, (21, 21), 0)[..., None]
-
     frame_start = time.perf_counter()
     for idx in range(total_frames):
-        mel_chunk = mel_chunks[idx]
+        # 1. Subtle, organic head micro-motion (breathing sway while speaking)
+        sway_dx = float(np.sin(idx * 0.08) * 1.6)
+        sway_dy = float(np.cos(idx * 0.05) * 1.3)
+        M_sway = np.float32([[1, 0, sway_dx], [0, 1, sway_dy]])
+        frame = cv2.warpAffine(face_bgr, M_sway, (w_orig, h_orig), borderMode=cv2.BORDER_REPLICATE)
 
-        if session is not None:
-            # Neural Wav2Lip Generation
-            # Mask lower half of mouth crop
-            masked_crop = mouth_crop_resized.copy()
-            masked_crop[48:, :] = 0
+        # 2. Dynamic speech mouth articulation & jaw drop
+        energy = float(smooth_rms[idx])
+        open_h = int(np.clip(energy * 28.0, 0, 24))
 
-            # Input: 6 channels [masked, reference] in NCHW format
-            tensor_face = np.concatenate([masked_crop, mouth_crop_resized], axis=2).astype(np.float32) / 255.0
-            tensor_face = np.transpose(tensor_face, (2, 0, 1))[None]
+        if open_h >= 2:
+            # Region of jaw drop
+            my = mouth_center_y + int(sway_dy)
+            mx = mouth_center_x + int(sway_dx)
 
-            tensor_audio = mel_chunk[None, None, :, :]  # Shape: (1, 1, 80, 16)
+            jaw_y1 = max(0, my - 4)
+            jaw_y2 = min(h_orig, my + jaw_span)
+            jaw_x1 = max(0, mx - mouth_half_w - 20)
+            jaw_x2 = min(w_orig, mx + mouth_half_w + 20)
 
-            inputs = {
-                session.get_inputs()[0].name: tensor_audio,
-                session.get_inputs()[1].name: tensor_face,
-            }
-            raw_out = session.run(None, inputs)[0]
-            pred_mouth = np.squeeze(raw_out).transpose(1, 2, 0)
-            pred_mouth = np.clip(pred_mouth * 255.0, 0, 255).astype(np.uint8)
-        else:
-            # Dynamic anatomical speech viseme modulation:
-            energy = smooth_rms[idx]
-            opening = int(np.clip(energy * 26.0, 0, 22))
-            pred_mouth = mouth_crop_resized.copy()
-            if opening >= 2:
-                lower_lip = mouth_crop_resized[52:, :].copy()
-                pred_mouth[52 + opening:, :] = lower_lip[:96 - (52 + opening), :]
-                cavity_y1 = 48
-                cavity_y2 = 48 + opening
-                cavity_x1 = 28
-                cavity_x2 = 68
-                pred_mouth[cavity_y1:cavity_y2, cavity_x1:cavity_x2] = (18, 14, 22)
-                teeth_h = min(6, opening // 2)
+            jaw_h = jaw_y2 - jaw_y1
+            jaw_w = jaw_x2 - jaw_x1
+
+            if jaw_h > open_h + 10 and jaw_w > 20:
+                jaw_patch = frame[jaw_y1:jaw_y2, jaw_x1:jaw_x2].copy()
+                shifted_jaw = jaw_patch.copy()
+
+                # Shift lower jaw & chin down by open_h
+                shifted_jaw[open_h:, :] = jaw_patch[:-open_h, :]
+
+                # Oral cavity depth
+                cavity_cx = mx - jaw_x1
+                cv2.ellipse(shifted_jaw, (cavity_cx, open_h // 2 + 2), (mouth_half_w - 6, open_h), 0, 0, 360, (18, 14, 22), -1)
+
+                # Upper teeth line
+                teeth_h = min(6, open_h // 3 + 1)
                 if teeth_h > 0:
-                    cv2.rectangle(pred_mouth, (cavity_x1 + 6, cavity_y1), (cavity_x2 - 6, cavity_y1 + teeth_h), (210, 215, 220), -1)
-                pred_mouth[cavity_y1-2:cavity_y2+2, cavity_x1-2:cavity_x2+2] = cv2.GaussianBlur(
-                    pred_mouth[cavity_y1-2:cavity_y2+2, cavity_x1-2:cavity_x2+2], (3, 3), 0
-                )
+                    cv2.rectangle(shifted_jaw, (cavity_cx - int(mouth_half_w * 0.55), 2),
+                                  (cavity_cx + int(mouth_half_w * 0.55), 2 + teeth_h), (218, 222, 226), -1)
+
+                shifted_jaw = cv2.GaussianBlur(shifted_jaw, (3, 3), 0)
+
+                # Soft feathered mask for seamless jaw integration
+                mask = np.zeros((jaw_h, jaw_w), dtype=np.float32)
+                cv2.ellipse(mask, (cavity_cx, jaw_h // 3), (mouth_half_w + 14, jaw_h // 2), 0, 0, 360, 1.0, -1)
+                mask = cv2.GaussianBlur(mask, (21, 21), 0)[..., None]
+
+                frame[jaw_y1:jaw_y2, jaw_x1:jaw_x2] = (
+                    shifted_jaw.astype(np.float32) * mask + jaw_patch.astype(np.float32) * (1.0 - mask)
+                ).astype(np.uint8)
+
+        # 3. Natural periodic eye blinks (every ~130 frames: frames 90, 220, 350)
+        blink_frames = [90, 220, 350]
+        for bf in blink_frames:
+            dist = abs(idx - bf)
+            if dist <= 2:
+                blink_drop = int((3 - dist) * (eye_radius * 0.45))
+                for ex, ey in [(eye_l_x + int(sway_dx), eye_l_y + int(sway_dy)),
+                               (eye_r_x + int(sway_dx), eye_r_y + int(sway_dy))]:
+                    by1 = max(0, ey - eye_radius)
+                    by2 = min(h_orig, ey + eye_radius)
+                    bx1 = max(0, ex - eye_radius - 8)
+                    bx2 = min(w_orig, ex + eye_radius + 8)
+                    skin_tone = frame[max(0, by1 - 10):by1, bx1:bx2].mean(axis=(0, 1)).astype(np.uint8)
+                    cv2.ellipse(frame, (ex, ey), (eye_radius + 4, blink_drop), 0, 0, 360, skin_tone.tolist(), -1)
+
+        writer.write(frame)
+        if (idx + 1) % 50 == 0 or idx == total_frames - 1:
+            print(f"  Rendered {idx + 1}/{total_frames} frames…", end="\r")
+
+    writer.release()
 
         # Scale predicted mouth back to original face resolution
         pred_mouth_full = cv2.resize(pred_mouth, (x2 - x1, y2 - y1), interpolation=cv2.INTER_LANCZOS4)
