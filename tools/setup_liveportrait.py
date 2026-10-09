@@ -46,23 +46,30 @@ def main():
     # 3. Download pretrained weights from Hugging Face using official Python SDK
     expected_checkpoint = WEIGHTS_DIR / "liveportrait" / "base_models" / "spade_generator.pth"
     if not expected_checkpoint.exists():
-        print(f"\nDownloading LivePortrait pretrained weights into {WEIGHTS_DIR}…")
+        print(f"\nDownloading LivePortrait human pretrained weights into {WEIGHTS_DIR}…", flush=True)
         WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
         try:
             from huggingface_hub import snapshot_download
             snapshot_download(
                 repo_id="KlingTeam/LivePortrait",
                 local_dir=str(WEIGHTS_DIR),
-                ignore_patterns=["*.git*", "README.md", "docs/*"],
+                local_dir_use_symlinks=False,
+                allow_patterns=[
+                    "liveportrait/base_models/*",
+                    "liveportrait/retargeting_models/*",
+                    "liveportrait/landmark.onnx",
+                    "insightface/models/buffalo_l/*",
+                ],
             )
+            print("Pretrained weights downloaded successfully.", flush=True)
         except Exception as exc:
-            print(f"Python SDK download notice: {exc}. Trying hf command…")
+            print(f"Python SDK download notice: {exc}. Trying fallback…", flush=True)
             try:
                 run_cmd(["hf", "download", "KlingTeam/LivePortrait", "--local-dir", str(WEIGHTS_DIR)])
             except Exception:
                 run_cmd(["huggingface-cli", "download", "KlingTeam/LivePortrait", "--local-dir", str(WEIGHTS_DIR)])
     else:
-        print(f"\nPretrained weights already present at {WEIGHTS_DIR}")
+        print(f"\nPretrained weights already present at {WEIGHTS_DIR}", flush=True)
 
     # 4. Setup Cloudflare tunnel binary
     cf = Path("/kaggle/working/cloudflared") if Path("/kaggle/working").exists() else (ROOT / "cloudflared")
