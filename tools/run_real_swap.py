@@ -134,6 +134,10 @@ def main():
         from app.enhance import FaceRestorer
         engine.restorer = FaceRestorer(str(restorer_path), visibility=1.0)
     print(f"Restorer (GFPGAN):   {'ACTIVE' if engine.restorer is not None else 'DISABLED'}")
+    if engine.compositor is None and parser_path.exists():
+        from app.compositor import SemanticCompositor
+        engine.compositor = SemanticCompositor(str(parser_path))
+    print(f"Compositor (BiSeNet): {'ACTIVE' if engine.compositor is not None else 'DISABLED'}")
 
     def find_face_image(candidates):
         for path in candidates:
@@ -222,9 +226,9 @@ def main():
         restored_512 = np.clip((restored_512 * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)[:, :, ::-1]
 
         # 1. Lower GFPGAN de-aging dominance to preserve mature facial geometry:
-        base_enhanced_512 = cv2.addWeighted(restored_512, 0.48, resized_512, 0.52, 0)
+        base_enhanced_512 = cv2.addWeighted(restored_512, 0.50, resized_512, 0.50, 0)
 
-        # 2. Extract and transfer genuine biological age lines (crow's feet, forehead creases, and mature pores) from source:
+        # 2. Extract and transfer authentic biological age lines (crow's feet & nasolabial folds):
         try:
             from insightface.utils import face_align
             src_crop_512, _ = face_align.norm_crop2(cv2.imread(str(src_path)), best_src.kps, 512)
@@ -232,15 +236,21 @@ def main():
             src_low = cv2.GaussianBlur(src_gray, (9, 9), 0)
             src_wrinkles = src_gray - src_low
 
-            # Inject source subject's authentic biological age wrinkles directly into skin:
-            enhanced_age = base_enhanced_512.astype(np.float32) + src_wrinkles[..., None] * 0.72
+            # Mask wrinkle injection strictly to the eye corners (crow's feet) and smile lines.
+            # Leave forehead clean so lighting reflections do NOT turn into vertical crease lines:
+            wrinkle_zone = np.zeros((512, 512), dtype=np.float32)
+            wrinkle_zone[190:310, :] = 1.0  # Crow's feet and under-eye area
+            wrinkle_zone[310:440, 100:412] = 1.0  # Nasolabial smile lines
+            wrinkle_zone = cv2.GaussianBlur(wrinkle_zone, (31, 31), 0)
+
+            enhanced_age = base_enhanced_512.astype(np.float32) + (src_wrinkles * wrinkle_zone)[..., None] * 0.70
             age_faithful_512 = np.clip(enhanced_age, 0, 255).astype(np.uint8)
         except Exception:
             age_faithful_512 = base_enhanced_512
 
         # 3. Micro-texture sharpening to restore realistic skin pores, eyelashes, and authentic eye-crease depth
         gaussian = cv2.GaussianBlur(age_faithful_512, (0, 0), 1.8)
-        crisp_512 = cv2.addWeighted(age_faithful_512, 1.40, gaussian, -0.40, 0)
+        crisp_512 = cv2.addWeighted(age_faithful_512, 1.35, gaussian, -0.35, 0)
 
         # 4. Color & Luminosity matching directly to TARGET image (removes pale/yellow cast so neck & forehead match 100%)
         try:
@@ -259,19 +269,6 @@ def main():
         except Exception:
             pass
 
-        # 5. Forehead specular highlight attenuation (removes hot shine on upper forehead):
-        try:
-            forehead_mask = np.zeros((512, 512), dtype=np.float32)
-            cv2.ellipse(forehead_mask, (256, 175), (145, 85), 0, 0, 360, 1.0, -1)
-            forehead_mask = cv2.GaussianBlur(forehead_mask, (41, 41), 0)
-            crisp_hsv = cv2.cvtColor(crisp_512, cv2.COLOR_BGR2HSV).astype(np.float32)
-            v = crisp_hsv[:, :, 2]
-            excess_glare = np.maximum(v - 165.0, 0.0) * forehead_mask * 0.45
-            crisp_hsv[:, :, 2] = np.clip(v - excess_glare, 0, 255)
-            crisp_512 = cv2.cvtColor(crisp_hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-        except Exception:
-            pass
-
         # Scaled affine transform to warp 512x512 directly into target image
         M_512 = M.copy()
         M_512[:2, :] *= 4.0
@@ -282,14 +279,19 @@ def main():
             borderMode=cv2.BORDER_REPLICATE
         )
 
-        # Full-face coverage mask with wide jawline contours
-        mask_512 = np.zeros((512, 512), dtype=np.float32)
-        cv2.ellipse(mask_512, (256, 260), (236, 245), 0, 0, 360, 1.0, -1)
-        mask_512 = cv2.GaussianBlur(mask_512, (45, 45), 0)
-
-        mask_full = cv2.warpAffine(
-            mask_512, IM_512, (dst_bgr.shape[1], dst_bgr.shape[0])
-        )[..., None]
+        # Seamless face compositing (BiSeNet neural segmentation or anatomically contoured blend)
+        if engine.compositor is not None:
+            mask_full = engine.compositor.mask(
+                cv2.cvtColor(dst_bgr, cv2.COLOR_BGR2RGB), best_dst.bbox, feather=0.035
+            )[..., None]
+        else:
+            # Anatomical face contour mask: stops gently below the hairline (top at y=75, bottom at y=485)
+            mask_512 = np.zeros((512, 512), dtype=np.float32)
+            cv2.ellipse(mask_512, (256, 280), (220, 205), 0, 0, 360, 1.0, -1)
+            mask_512 = cv2.GaussianBlur(mask_512, (45, 45), 0)
+            mask_full = cv2.warpAffine(
+                mask_512, IM_512, (dst_bgr.shape[1], dst_bgr.shape[0])
+            )[..., None]
 
         out_bgr = (restored_full.astype(np.float32) * mask_full + dst_bgr.astype(np.float32) * (1.0 - mask_full)).astype(np.uint8)
     else:
