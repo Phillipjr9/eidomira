@@ -92,12 +92,21 @@ def main():
     env = os.environ.copy()
     env["STUDIO_BACKEND"] = "inswapper"
     env["STUDIO_ALLOWED_ORIGINS"] = "*"
-    env["STUDIO_DEMO_ENABLED"] = "true"
+    env["STUDIO_DEMO_LOGIN"] = "true"
+    env["STUDIO_DEMO_PASSWORD"] = "eidomira-demo-2026"
     env["STUDIO_REQUIRE_SELF_VERIFICATION"] = "false"
     env["STUDIO_RESTORATION_VISIBILITY"] = "0.6"
     env["STUDIO_MODEL_PATH"] = str(model_path)
     env["PYTHONPATH"] = str(ROOT) + (":" + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
     env["PYTHONUNBUFFERED"] = "1"
+
+    # Pre-seed demo accounts in the database
+    try:
+        import app.demo as demo
+        demo.ensure_accounts()
+        print("  Demo accounts ready (demo@eidomira.test / eidomira-demo-2026)")
+    except Exception as exc:
+        print(f"  Demo account notice: {exc}")
 
     server_cmd = [
         sys.executable, "-m", "uvicorn",
