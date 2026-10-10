@@ -20,6 +20,18 @@ import sys
 import time
 from pathlib import Path
 
+# Force unbuffered streaming output in Jupyter / Kaggle
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
 ROOT = Path(__file__).resolve().parent.parent
 LP_DIR = Path("/kaggle/working/LivePortrait") if Path("/kaggle/working").exists() else (ROOT / "third_party" / "LivePortrait")
 WEIGHTS_DIR = LP_DIR / "pretrained_weights"
