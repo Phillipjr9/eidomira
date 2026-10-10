@@ -96,15 +96,28 @@ def main():
     else:
         print("All dependencies already verified.", flush=True)
 
-    # 3. Patch pre-checks in FaceFusion
+    # 3. Direct UI entry patch into FaceFusion core
     core_file = FF_DIR / "facefusion" / "core.py"
     if core_file.exists():
         try:
             c = core_file.read_text()
-            c = re.sub(r"def pre_check\(\) -> bool:.*?(?=\ndef )", "def pre_check() -> bool:\n\treturn True\n\n", c, flags=re.DOTALL)
-            c = re.sub(r"def common_pre_check\(\) -> bool:.*?(?=\ndef )", "def common_pre_check() -> bool:\n\treturn True\n\n", c, flags=re.DOTALL)
-            c = re.sub(r"def processors_pre_check\(\) -> bool:.*?(?=\ndef )", "def processors_pre_check() -> bool:\n\treturn True\n\n", c, flags=re.DOTALL)
+            direct_cli = (
+                "def cli() -> None:\n"
+                "\tsignal.signal(signal.SIGINT, signal_exit)\n"
+                "\tprogram = create_program()\n"
+                "\targs = vars(program.parse_known_args()[0])\n"
+                "\tapply_args(args, state_manager.init_item)\n"
+                "\tstate_manager.init_item('command', 'run')\n"
+                "\tstate_manager.init_item('ui_layouts', ['default'])\n"
+                "\tstate_manager.init_item('open_browser', False)\n"
+                "\tlogger.init('info')\n"
+                "\timport facefusion.uis.core as ui\n"
+                "\tui.init()\n"
+                "\tui.launch()\n\n"
+            )
+            c = re.sub(r"def cli\(\) -> None:[\s\S]*?(?=def route)", direct_cli, c)
             core_file.write_text(c)
+            print("Direct UI entry patched into core.", flush=True)
         except Exception as exc:
             print(f"Note on core patch: {exc}", flush=True)
 
@@ -117,6 +130,7 @@ def main():
             if old_launch in l_text:
                 l_text = l_text.replace(old_launch, new_launch)
                 layout_file.write_text(l_text)
+                print("Server binding patched into default layout.", flush=True)
         except Exception as exc:
             print(f"Note on layout patch: {exc}", flush=True)
 
