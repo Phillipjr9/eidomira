@@ -80,11 +80,12 @@ def main():
 
     if missing:
         print(f"Installing missing packages: {' '.join(missing)}…", flush=True)
-        print("Unpacking 255MB ONNX GPU wheel (takes ~45-60 seconds, please wait)…", flush=True)
-        subprocess.run([
-            sys.executable, "-m", "pip", "install",
-            *missing,
-        ], check=True)
+        for pkg in missing:
+            print(f"  Installing {pkg}…", flush=True)
+            if pkg in ("gradio", "gradio-rangeslider"):
+                subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", pkg], check=True)
+            else:
+                subprocess.run([sys.executable, "-m", "pip", "install", pkg], check=True)
         print("✅ Dependencies successfully installed!", flush=True)
     else:
         print("All dependencies already verified.", flush=True)
