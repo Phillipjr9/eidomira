@@ -172,11 +172,15 @@ def main():
             sys.path.remove(str(ROOT))
         sys.path.insert(0, str(ROOT))
 
-        print("\n--- Initializing LivePortrait Neural Engine on GPU ---", flush=True)
+        print("\n--- Initializing LivePortrait Neural Engine ---", flush=True)
         from app.engines.factory import create_engine
         warmup_engine = create_engine()
         if getattr(warmup_engine, "_initialized", False):
-            print("🚀 LIVEPORTRAIT NEURAL ENGINE INITIALIZED ON GPU SUCCESSFULLY!\n", flush=True)
+            import torch
+            if torch.cuda.is_available():
+                print("🚀 LIVEPORTRAIT NEURAL ENGINE READY ON GPU (CUDA)!\n", flush=True)
+            else:
+                print("⚡ LIVEPORTRAIT NEURAL ENGINE READY ON CPU!\n", flush=True)
         else:
             err = getattr(warmup_engine, "_init_error", "Unknown initialization failure")
             print(f"⚠️ LivePortrait running in fallback mode: {err}\n", flush=True)

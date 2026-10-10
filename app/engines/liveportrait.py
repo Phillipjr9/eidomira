@@ -125,14 +125,27 @@ class LivePortraitEngine(FaceSwapEngine):
                 self.crop_cfg.landmark_ckpt_path = str(w_path / "liveportrait" / "landmark.onnx")
                 self.crop_cfg.insightface_root = str(w_path / "insightface")
 
+            has_cuda = torch.cuda.is_available()
+            if not has_cuda:
+                print("Notice: CUDA is not available in PyTorch. Running LivePortrait in CPU mode.", flush=True)
+                self.inference_cfg.flag_force_cpu = True
+                self.crop_cfg.flag_force_cpu = True
+                self.inference_cfg.flag_use_half_precision = False
+            else:
+                self.inference_cfg.flag_force_cpu = False
+                self.crop_cfg.flag_force_cpu = False
+
             self.inference_cfg.device_id = self.device_id
             self.inference_cfg.flag_pasteback = self.flag_pasteback
             self.inference_cfg.flag_relative_motion = True
 
             self.wrapper = LivePortraitWrapper(inference_cfg=self.inference_cfg)
-            self.cropper = Cropper(crop_cfg=self.crop_cfg)
+            self.cropper = Cropper(crop_cfg=self.crop_cfg, flag_force_cpu=not has_cuda)
             self._initialized = True
-            print("✅ LivePortrait models loaded onto GPU successfully!", flush=True)
+            if has_cuda:
+                print("✅ LivePortrait models loaded onto GPU successfully!", flush=True)
+            else:
+                print("✅ LivePortrait models loaded onto CPU successfully!", flush=True)
         except Exception as exc:
             import traceback
             print(f"❌ [LivePortrait Init Error]: {exc}", flush=True)
