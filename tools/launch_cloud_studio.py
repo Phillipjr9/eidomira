@@ -216,13 +216,6 @@ def main():
         print("\nShutting down server…", flush=True)
         server_proc.terminate()
         tunnel_proc.terminate()
-            line = tunnel_proc.stdout.readline()
-            if not line:
-                break
-    except KeyboardInterrupt:
-        print("\nStopping studio…")
-        tunnel_proc.terminate()
-        server_proc.terminate()
 
 
 if __name__ == "__main__":
