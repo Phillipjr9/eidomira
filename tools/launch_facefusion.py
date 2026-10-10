@@ -2,19 +2,17 @@
 """tools/launch_facefusion.py — 1-Click FaceFusion WebUI Cloud GPU Runner.
 
 Clones the official FaceFusion repository (https://github.com/facefusion/facefusion),
-configures CUDA execution providers on the Tesla T4 GPU, opens a secure Cloudflare
-HTTPS tunnel, and provides the complete FaceFusion video-to-video swapping platform
-in your browser.
+configures CUDA execution providers on the Tesla T4 GPU, launches Gradio share, and opens
+a secure Cloudflare HTTPS tunnel to provide the complete FaceFusion video-to-video swapping
+platform in your browser.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -90,68 +88,46 @@ def main():
     else:
         print("All dependencies already verified.", flush=True)
 
-    # 3. Setup Cloudflare tunnel
-    cf_path = download_cloudflared()
-    if not cf_path.exists():
-        print("Error: Could not obtain cloudflared binary.", file=sys.stderr)
-        return 1
-
-    log_file = Path("/tmp/cloudflared_ff.log")
-    if log_file.exists():
-        log_file.unlink()
+    # Enable native Gradio public sharing link
+    layout_file = FF_DIR / "facefusion" / "uis" / "layouts" / "default.py"
+    if layout_file.exists():
+        try:
+            content = layout_file.read_text()
+            if "share = True" not in content:
+                content = content.replace("ui.launch(", "ui.launch(share = True, ")
+                layout_file.write_text(content)
+        except Exception:
+            pass
 
     os.environ["GRADIO_SERVER_NAME"] = "0.0.0.0"
     os.environ["GRADIO_SHARE"] = "True"
     os.environ["PYTHONUNBUFFERED"] = "1"
 
-    print("\nOpening secure HTTPS tunnel for FaceFusion UI…", flush=True)
-    tunnel_cmd = [
-        str(cf_path), "tunnel",
-        "--no-autoupdate",
-        "--url", "http://127.0.0.1:7860",
-        "--logfile", str(log_file),
-    ]
-    tunnel_proc = subprocess.Popen(tunnel_cmd)
+    # 3. Setup Cloudflare tunnel in background
+    cf_path = download_cloudflared()
+    tunnel_proc = None
+    if cf_path.exists():
+        print("\nOpening secure HTTPS tunnel for FaceFusion UI…", flush=True)
+        tunnel_cmd = [
+            str(cf_path), "tunnel",
+            "--no-autoupdate",
+            "--url", "http://127.0.0.1:7860",
+        ]
+        tunnel_proc = subprocess.Popen(tunnel_cmd)
 
-    print("Connecting tunnel (takes ~4-6 seconds)", end="", flush=True)
-    public_url = None
-    start_time = time.time()
-    while time.time() - start_time < 30:
-        print(".", end="", flush=True)
-        if log_file.exists():
-            try:
-                content = log_file.read_text(errors="ignore")
-                match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", content)
-                if match:
-                    public_url = match.group(0)
-                    break
-            except Exception:
-                pass
-        time.sleep(0.8)
-
-    if public_url:
-        print("\n" + "#" * 72, flush=True)
-        print("  🎉 FACEFUSION PLATFORM IS LIVE ON CLOUD GPU!", flush=True)
-        print("#" * 72)
-        print(f"\n  👉 OPEN THIS LINK IN YOUR MAC BROWSER:", flush=True)
-        print(f"     {public_url}\n", flush=True)
-        print("  1. Drop your Source Face image (e.g. Elon)")
-        print("  2. Drop your Target Video (any real moving video clip)")
-        print("  3. Select processors (Face Swapper + Face Enhancer)")
-        print("  4. Click START to render your full moving video!")
-        print("#" * 72 + "\n", flush=True)
-    else:
-        print("Starting FaceFusion on port 7860…", flush=True)
-
-    # 4. Run FaceFusion WebUI
+    # 4. Run FaceFusion WebUI immediately
     try:
         os.chdir(str(FF_DIR))
-        print("Launching FaceFusion engine…", flush=True)
+        print("\n" + "#" * 72)
+        print("  🚀 STARTING OFFICIAL FACEFUSION PLATFORM ON TESLA T4 GPU...")
+        print("  Look for the public link below (gradio.live or trycloudflare.com)")
+        print("#" * 72 + "\n", flush=True)
         subprocess.run([sys.executable, "facefusion.py", "run", "--execution-providers", "cuda", "cpu"], check=True)
     except KeyboardInterrupt:
         print("\nStopping FaceFusion…")
     finally:
-        tunnel_proc.terminate()
+        if tunnel_proc:
+            tunnel_proc.terminate()
     return 0
 
 
