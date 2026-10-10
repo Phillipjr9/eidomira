@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   disabled INTEGER NOT NULL DEFAULT 0,
-  email_verified_at INTEGER
+  email_verified_at INTEGER,
+  role TEXT NOT NULL DEFAULT 'user'
 );
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
   id TEXT PRIMARY KEY,
@@ -113,6 +114,12 @@ class Database:
             columns={row[1] for row in db.execute("PRAGMA table_info(users)")}
             if "email_verified_at" not in columns:
                 db.execute("ALTER TABLE users ADD COLUMN email_verified_at INTEGER")
+            if "role" not in columns:
+                # Every account that already exists becomes what it already was: an
+                # ordinary account. The column arrives here rather than through a
+                # migration tool because this schema is created idempotently on boot, and
+                # the default is the least privilege the product has.
+                db.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
             wallet_columns={row[1] for row in db.execute("PRAGMA table_info(credit_wallets)")}
             if "topup_expires_at" not in wallet_columns:
                 db.execute("ALTER TABLE credit_wallets ADD COLUMN topup_expires_at INTEGER")

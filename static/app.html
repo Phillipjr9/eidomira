@@ -1,82 +1,446 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Eidomira Live · Be present. Appear differently.</title>
-  <meta name="description" content="Consent-first live identity transformation for video, voice, avatars and calls.">
-  <meta name="theme-color" content="#eef8ff">
-  <link rel="manifest" href="/static/manifest.webmanifest">
-  <link rel="icon" type="image/png" href="/static/eidomira-icon.png">
-  <link rel="apple-touch-icon" href="/static/eidomira-icon.png">
-  <link rel="stylesheet" href="/static/style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Eidomira Live · Studio</title>
+<meta name="description" content="Run one ephemeral identity session: enrol, pass liveness, and transform live.">
+<meta name="color-scheme" content="dark">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/fonts.css">
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/studio.css">
 </head>
-<body>
-<div class="ambient ambientA"></div><div class="ambient ambientB"></div>
-<div class="siteShell">
-  <header class="navWrap">
-    <a class="brand" href="#top"><img class="brandmark" src="/static/eidomira-icon.png" alt=""><span>EIDOMIRA <b>LIVE</b></span></a>
-    <nav class="desktopNav"><a href="#studio">Studio</a><a href="#suite">Tools</a><a href="#workflow">How it works</a><a href="#pricing">Pricing</a></nav>
-    <div class="headerActions"><div class="health"><i id="healthDot"></i><span id="healthText">Checking engine</span></div><button class="accountButton" id="accountBtn">Sign in</button><a class="navCta" href="#studio">Open studio <span>↗</span></a></div>
-  </header>
+<body class="workspace">
 
-  <div class="accountBar" id="accountBar" hidden><span id="accountEmail"></span><b id="accountPlan">TRIAL</b><strong><span id="creditBalance">0</span> credits</strong><button id="logoutBtn">Log out</button></div>
+<div class="fx-spark" aria-hidden="true"></div>
+<div class="fx-vignette" aria-hidden="true"></div>
+<div class="fx-grain" aria-hidden="true"></div>
 
-  <main id="top">
-    <section class="hero">
-      <div class="heroCopy"><div class="eyebrow"><span>✦</span> CONSENT-FIRST IDENTITY ENGINE</div><h1>Be present.<br><em>Appear differently.</em></h1><p>Transform live video, voice, and digital characters in one beautifully simple studio—while keeping consent, liveness, and provenance built in.</p><div class="heroActions"><a class="primaryCta" href="#studio">Start creating <span>→</span></a><a class="secondaryCta" href="#suite"><i>▶</i> Explore the suite</a></div><div class="trustRow"><div><b>WebRTC</b><span>True live video</span></div><div><b>Self-only</b><span>Verified identity</span></div><div><b>Ephemeral</b><span>Private sessions</span></div></div></div>
-      <div class="heroVisual"><img src="/static/eidomira-hero-3d.png" alt="Abstract glass identity sculptures"><div class="floatCard floatOne"><i>◉</i><span><b>Live presence</b>Natural motion preserved</span></div><div class="floatCard floatTwo"><i>✦</i><span><b>Neural identity</b>One reference enrollment</span></div><div class="heroStatus"><span></span> READY FOR CAMERA</div></div>
-    </section>
+<a class="skip-link" href="#studioSection">Skip to the workbench</a>
 
-    <section class="proofStrip"><span>BUILT FOR</span><b>Live calls</b><i></i><b>Creator video</b><i></i><b>Talking avatars</b><i></i><b>Voice transformation</b><i></i><b>Streaming</b></section>
+<!-- ══ Top bar ═════════════════════════════════════════════════════════════ -->
+<header class="bar">
+  <div class="bar__inner">
+    <a class="brand" href="/" aria-label="Eidomira Live home">
+      <img class="brand__mark" src="/static/icon-192.png" alt="" width="34" height="34">
+      <span class="brand__word">Eidomira <b>Live</b></span>
+    </a>
+    <span class="bar__spacer"></span>
+    <span class="health" aria-live="polite"><i id="healthDot"></i><span id="healthText">Checking engine…</span></span>
+    <a class="credits" id="creditChip" href="#billing" title="See your balance and buy credits">
+      <b id="creditBalance">—</b><span>credits</span>
+    </a>
+    <a class="accountChip" id="accountChip" href="#settings">
+      <span class="accountChip__dot" aria-hidden="true"></span>
+      <b id="chipEmail">Account</b>
+    </a>
+  </div>
+</header>
 
-    <section class="suiteSection" id="suite">
-      <div class="sectionIntro"><div><span class="pill">POWERFUL CREATOR SUITE</span><h2>Every way to transform.<br><em>One trusted workspace.</em></h2></div><p>Move from a live call to polished video, synchronized speech, or a new character without rebuilding your workflow.</p></div>
-      <div class="featureShowcase">
-        <article class="featureCard featurePrimary"><div class="featureArt miniLive"><div class="miniScreen"><span>LIVE</span><div class="orb">◉</div><small>30 FPS · VERIFIED</small></div></div><span class="featureNo">01 / LIVE</span><h3>Full Live Swap</h3><p>Continuous browser video with expressions, gaze, blinking, and head movement preserved.</p><a href="#studio">Launch live studio <b>→</b></a></article>
-        <article class="featureCard"><div class="featureArt waveform"><span></span><span></span><span></span><span></span><span></span><i>VOICE</i></div><span class="featureNo">02 / AUDIO</span><h3>Voice Studio</h3><p>Change, clone, and synchronize authorized voices with low-latency controls.</p><a href="#pricing">View access <b>→</b></a></article>
-        <article class="featureCard"><div class="featureArt splitArt"><img src="/static/eidomira-feature-3d.png" alt="Abstract identity transition"><div class="splitLine"><i>‹ ›</i></div></div><span class="featureNo">03 / VIDEO</span><h3>Video & Character Swap</h3><p>HD face and character transformation for clips up to three minutes.</p><a href="#workflow">See workflow <b>→</b></a></article>
-      </div>
-    </section>
+<!-- ══ Sections ════════════════════════════════════════════════════════════ -->
+<nav class="tabs" id="tabs" aria-label="Studio sections">
+  <a class="tab" href="#studio" data-view="studio">Studio</a>
+  <a class="tab" href="#billing" data-view="billing">Billing</a>
+  <a class="tab" href="#settings" data-view="settings">Settings</a>
+  <a class="tab tab--out" id="adminLink" href="/admin" hidden>Owner console ↗</a>
+</nav>
 
-    <section class="studioSection" id="studio">
-      <div class="studioHeading"><div><span class="pill dark">EIDOMIRA LIVE STUDIO</span><h2>Your camera. A new presence.</h2><p>Enroll your own identity, complete a liveness check, and start the secure stream.</p></div><div class="studioMeta"><span>SESSION PRIVACY</span><b>Frames are not stored</b></div></div>
-      <nav class="progress"><div class="active" id="p1"><b>01</b><span>Identity<small>Enroll a reference</small></span></div><div id="p2"><b>02</b><span>Camera<small>Verify presence</small></span></div><div id="p3"><b>03</b><span>Transform<small>Start output</small></span></div></nav>
-      <div class="studioGrid">
-        <div class="studioControls">
-          <section class="identity"><div class="sectionHead"><div><span class="microLabel">YOUR IDENTITY</span><h3>Who will appear?</h3></div><button class="textButton" id="resetBtn">Reset</button></div>
-            <label class="uploadCard" id="uploadCard"><input type="file" id="source" accept="image/*"><div class="uploadIcon">↑</div><strong>Upload your portrait</strong><span>Front-facing · well-lit · one person</span><img id="sourcePreview" alt="Reference preview"></label>
-            <div class="qualityPick"><span>QUALITY</span><label><input type="radio" name="quality" value="speed"><b>Speed</b><small>Fastest</small></label><label><input type="radio" name="quality" value="balanced" checked><b>Balanced</b><small>Recommended</small></label><label><input type="radio" name="quality" value="quality"><b>Quality</b><small>Detailed</small></label></div>
-            <label class="consent"><input type="checkbox" id="consent"><span><b>Self-only consent</b>I confirm this is my own face and consent to processing for this session.</span></label>
-            <button class="button primary" id="enrollBtn">Enroll identity <b>→</b></button><div class="status" id="status">Choose a reference portrait to begin.</div>
-          </section>
-          <div class="safetyList"><div><i>✓</i><span><b>Active liveness</b>Blocks static-photo impersonation.</span></div><div><i>✓</i><span><b>Ephemeral identity</b>Session state expires automatically.</span></div><div><i>✓</i><span><b>Synthetic provenance</b>Disclosure remains embedded.</span></div></div>
-        </div>
-        <div class="videoWorkspace">
-          <div class="videoHeader"><div><span class="microLabel">LIVE CANVAS</span><b>Original and transformed</b></div><div class="videoLegend"><span><i class="cameraDot"></i> Camera</span><span><i class="neuralDot"></i> Neural output</span></div></div>
-          <div class="studio">
-            <div class="stage"><div class="stageTop"><span>ORIGINAL</span><span class="badge off" id="cameraBadge">OFFLINE</span></div><div class="viewport"><video id="video" autoplay muted playsinline></video><div class="empty" id="cameraEmpty"><div class="cameraIcon">◉</div><strong>Your camera is off</strong><span>Access begins only when you press Start</span></div></div><button class="button ghost wide" id="cameraBtn">Start camera <b>→</b></button></div>
-            <div class="stage output"><div class="stageTop"><span>TRANSFORMED · SYNTHETIC</span><span class="badge" id="outputBadge">WAITING</span></div><div class="viewport"><video id="output" autoplay muted playsinline></video><div class="livenessPrompt" id="livenessPrompt"><span>LIVE CHECK</span><strong id="livenessText">Look directly at the camera</strong><div><i id="livenessBar"></i></div></div><div class="empty" id="outputEmpty"><div class="spark">✦</div><strong>Your transformation appears here</strong><span>Enroll an identity and connect your camera</span></div><canvas id="capture" hidden></canvas></div><div class="outputActions"><button class="button primary" id="goBtn" disabled><span>✦</span> Start transformation</button><button class="button ghost" id="recordBtn" disabled>● Record</button><button class="button ghost" id="cleanBtn" disabled>Clean</button></div><a id="recordDownload" class="downloadClip" hidden>Download clip</a></div>
+<main>
+
+<!-- ── Studio ─────────────────────────────────────────────────────────────── -->
+<section class="view" id="viewStudio" aria-label="Studio">
+  <div class="progress" aria-label="Session progress">
+    <div id="p1"><b>01</b><span>Upload identity<small>One clear portrait of yourself</small></span></div>
+    <div id="p2"><b>02</b><span>Pass liveness<small>Confirm a real person is present</small></span></div>
+    <div id="p3"><b>03</b><span>Transform live<small>Preview, record or publish</small></span></div>
+  </div>
+
+  <div class="studioHeading">
+    <div>
+      <span class="pill">Live studio</span>
+      <h2>Be present. <span class="serif">Appear differently.</span></h2>
+      <p>
+        Everything here runs against one ephemeral identity session. Frames are processed in
+        memory, never written to disk, and the session expires on its own.
+      </p>
+    </div>
+    <div class="studioMeta">
+      <span>Synthetic labelling</span>
+      <b>Always embedded</b>
+    </div>
+  </div>
+
+  <div class="workbench">
+    <!-- ── Identity column ─────────────────────────────────────────────── -->
+    <div class="workbench__side">
+      <section class="panel" id="studioSection">
+        <div class="sectionHead">
+          <div>
+            <span class="microLabel">Step 1 · Identity</span>
+            <h3>Who will appear?</h3>
           </div>
-          <div class="mobileTools"><label><input id="recordMic" type="checkbox"> Include microphone</label><button id="flipBtn" disabled>↻ Flip camera</button><button id="shareBtn" hidden>Share clip</button><button id="installBtn" hidden>Install app</button></div>
-          <section class="telemetry"><div><span>ENGINE</span><b id="engineName">—</b></div><div><span>LATENCY</span><b id="latency">— ms</b></div><div><span>STREAM</span><b id="fps">0 FPS</b></div><div><span>DROPPED</span><b id="dropped">0</b></div><div><span>INFERENCE</span><b id="inferenceSize">—</b></div><div><span>VERIFICATION</span><b id="verified">PENDING</b></div></section>
+          <button class="textButton" id="resetBtn" type="button">Reset</button>
         </div>
+
+        <label class="uploadCard" id="uploadCard">
+          <input type="file" id="source" accept="image/*">
+          <div class="uploadIcon" aria-hidden="true">↑</div>
+          <strong>Upload your portrait</strong>
+          <span>Front-facing, well-lit, one person. You must have permission to use it.</span>
+          <img id="sourcePreview" alt="Reference portrait preview">
+        </label>
+
+        <div class="presetRow" style="display:flex;gap:8px;margin:10px 0 14px;align-items:center;">
+          <span style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Presets:</span>
+          <button type="button" class="btn btn--ghost presetBtn" data-src="/static/hero-identity.jpg" style="padding:4px 10px;font-size:12px;">Amara</button>
+          <button type="button" class="btn btn--ghost presetBtn" data-src="/static/celebrity-01.jpg" style="padding:4px 10px;font-size:12px;">Elon</button>
+          <button type="button" class="btn btn--ghost presetBtn" data-src="/static/businessman-neutral.jpg" style="padding:4px 10px;font-size:12px;">Executive</button>
+        </div>
+
+        <label class="consent">
+          <input type="checkbox" id="consent">
+          <span><b>Self-only consent</b>I confirm this is my own face, or a likeness I have explicit permission to use, and I consent to processing for this session.</span>
+        </label>
+
+        <button class="btn btn--primary btn--block" id="enrollBtn" type="button">Enroll identity <span class="btn__arrow" aria-hidden="true">→</span></button>
+        <div class="status" id="status" role="status" aria-live="polite">Choose a reference portrait to begin.</div>
+
+        <p class="settingLine">
+          Quality preset <b id="qualityNow">Balanced</b>
+          <a class="textButton" href="#settings">Change in Settings</a>
+        </p>
+
+        <div class="safetyList">
+          <div><i aria-hidden="true">✓</i><span><b>Active liveness</b>Blocks static-photo impersonation.</span></div>
+          <div><i aria-hidden="true">✓</i><span><b>Ephemeral identity</b>Session state expires automatically.</span></div>
+          <div><i aria-hidden="true">✓</i><span><b>Synthetic provenance</b>Disclosure stays embedded.</span></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ── Live canvas ─────────────────────────────────────────────────── -->
+    <div class="videoWorkspace">
+      <div class="videoHeader">
+        <div>
+          <span class="microLabel">Step 2 &amp; 3 · Live canvas</span>
+          <b>Original and transformed</b>
+        </div>
+        <div class="videoLegend">
+          <span><i class="cameraDot" aria-hidden="true"></i>Camera</span>
+          <span><i class="neuralDot" aria-hidden="true"></i>Neural output</span>
+        </div>
+      </div>
+
+      <div class="canvases">
+        <div class="stage">
+          <div class="stageTop">
+            <span>Original</span>
+            <span class="badge off" id="cameraBadge">Offline</span>
+          </div>
+          <div class="viewport">
+            <video id="video" autoplay muted playsinline aria-label="Your camera"></video>
+            <div class="empty" id="cameraEmpty">
+              <div class="cameraIcon" aria-hidden="true">◉</div>
+              <strong>Your camera is off</strong>
+              <span>Access begins only when you press start.</span>
+            </div>
+          </div>
+          <button class="btn btn--ghost btn--block" id="cameraBtn" type="button">Start camera <span class="btn__arrow" aria-hidden="true">→</span></button>
+          <button class="btn btn--ghost btn--block" id="syntheticCamBtn" type="button" style="margin-top:8px" hidden>Use test video stream</button>
+        </div>
+
+        <div class="stage output">
+          <div class="stageTop">
+            <span>Transformed · synthetic</span>
+            <span class="badge" id="outputBadge">Waiting</span>
+          </div>
+          <div class="viewport">
+            <video id="output" autoplay muted playsinline aria-label="Transformed output"></video>
+            <canvas id="outputCanvas" style="display:none;width:100%;height:100%;object-fit:cover;border-radius:inherit;" aria-label="Live transformed canvas"></canvas>
+            <div class="livenessPrompt" id="livenessPrompt">
+              <span>Live check</span>
+              <strong id="livenessText">Look directly at the camera</strong>
+              <div><i id="livenessBar"></i></div>
+            </div>
+            <div class="empty" id="outputEmpty">
+              <div class="spark" aria-hidden="true">✦</div>
+              <strong>Your transformation appears here</strong>
+              <span>Enroll an identity and connect your camera.</span>
+            </div>
+            <canvas id="capture" hidden></canvas>
+          </div>
+          <div class="outputActions">
+            <button class="btn btn--primary" id="goBtn" type="button" disabled><span aria-hidden="true">✦</span> Start transformation</button>
+            <button class="btn btn--ghost" id="recordBtn" type="button" disabled>● Record</button>
+            <button class="btn btn--ghost" id="cleanBtn" type="button" disabled>Clean</button>
+          </div>
+          <a id="recordDownload" class="downloadClip" hidden>↓ Download clip</a>
+        </div>
+      </div>
+
+      <div class="mobileTools">
+        <label><input id="recordMic" type="checkbox"> Include microphone</label>
+        <button id="flipBtn" type="button" disabled>↻ Flip camera</button>
+        <button id="shareBtn" type="button" hidden>Share clip</button>
+        <button id="installBtn" type="button" hidden>Install app</button>
+      </div>
+
+      <div class="dash">
+        <section class="telemetry" aria-label="Session telemetry">
+          <div class="dashHead"><span class="microLabel">Session</span></div>
+          <div><span>Engine</span><b id="engineName">—</b></div>
+          <div><span>Latency</span><b id="latency">— ms</b></div>
+          <div><span>Frame</span><b id="frameCost">— ms</b></div>
+          <div><span>Stream</span><b id="fps">0 FPS</b></div>
+          <div><span>Dropped</span><b id="dropped">0</b></div>
+          <div><span>Inference</span><b id="inferenceSize">—</b></div>
+          <div><span>Verification</span><b id="verified">Pending</b></div>
+        </section>
+
+        <section class="trainer" aria-label="Quality trainer">
+          <div class="trainerHead">
+            <span class="microLabel">Quality trainer</span>
+            <b id="trainerState" class="off">Idle</b>
+          </div>
+          <p id="trainerSummary">Waiting for the first measured frame.</p>
+          <ul id="trainerList"></ul>
+        </section>
+      </div>
+
+      <section class="callDock">
+        <div class="dashHead">
+          <span class="microLabel">Eidomira calls</span>
+          <strong>Host or join with transformed video</strong>
+        </div>
+        <div class="callDock__row">
+          <input id="callName" placeholder="Display name" maxlength="48" aria-label="Display name">
+          <input id="callRoom" placeholder="Room code" maxlength="64" aria-label="Room code">
+          <button type="button" id="createCall">Create call</button>
+          <button type="button" id="joinCall">Join</button>
+          <button type="button" id="leaveCall" hidden>Leave</button>
+          <span id="callStatus">Not connected</span>
+        </div>
+        <div id="remoteGrid"></div>
+      </section>
+    </div>
+  </div>
+</section>
+
+<!-- ── Billing ────────────────────────────────────────────────────────────── -->
+<section class="view" id="viewBilling" aria-label="Billing" hidden>
+  <div class="viewHead">
+    <div>
+      <span class="pill">Billing</span>
+      <h2>Credits, plan and <span class="serif">payment</span></h2>
+      <p>
+        Card payments are handled by Paystack. Choosing a pack or a plan opens Paystack's own
+        checkout page — this application never sees or stores your card details.
+      </p>
+    </div>
+    <span class="badge off" id="walletState">Loading</span>
+  </div>
+
+  <div class="billing">
+    <section class="card card--balance" aria-label="Balance">
+      <span class="microLabel">Balance</span>
+      <div class="balanceTotal"><b id="walletTotal">—</b><span>credits remaining</span></div>
+      <div class="balanceSplit">
+        <div><span>Plan credits</span><b id="walletPlanCredits">0</b></div>
+        <div><span>Top-up credits</span><b id="walletTopupCredits">0</b></div>
+        <div><span>Used all time</span><b id="walletUsedCredits">0</b></div>
+      </div>
+      <p class="note" id="walletExpiry" hidden></p>
+      <p class="note">Plan credits are usable while the plan is active. Top-up credits stay usable for 12 months from purchase, and are spent after plan credits.</p>
+    </section>
+
+    <section class="card card--plan" aria-label="Plan">
+      <div class="cardHead">
+        <span class="microLabel">Plan</span>
+        <span class="pill" id="accountPlan">NO PLAN</span>
+      </div>
+      <h3 id="planName">Eidomira Live Pro</h3>
+      <p class="planPrice"><b id="planPriceNgn">—</b><span>per month · <i id="planPriceUsd">—</i></span></p>
+      <p class="note" id="planNote">Checking your plan…</p>
+      <ul class="planFeatures" id="planFeatures"></ul>
+      <div class="cardActions">
+        <button class="btn btn--primary" id="upgradeBtn" type="button">Upgrade monthly</button>
+        <button class="btn btn--ghost" id="annualBtn" type="button">Annual · save 17%</button>
       </div>
     </section>
 
-    <section class="workflow" id="workflow"><div class="workflowCopy"><span class="pill">THE SIMPLE FLOW</span><h2>From yourself to<br><em>something new.</em></h2><p>Four deliberate steps keep transformation clear, controlled, and consent-based.</p><div class="steps"><article class="active"><b>01</b><div><h3>Upload your identity</h3><p>Use a clear portrait of your own face.</p></div></article><article><b>02</b><div><h3>Complete liveness</h3><p>Confirm a real person is present.</p></div></article><article><b>03</b><div><h3>Choose your tool</h3><p>Live, video, voice, avatar, or character.</p></div></article><article><b>04</b><div><h3>Create with control</h3><p>Preview, process, record, or publish.</p></div></article></div></div><div class="workflowVisual"><img src="/static/eidomira-feature-3d.png" alt="Glass identity transformation"><div class="workflowCard"><span>IDENTITY TRANSITION</span><b>Natural motion.<br>Stable presence.</b><div><i></i><i></i><i></i><i></i></div></div></div></section>
+    <section class="card card--packs" aria-label="Buy credits">
+      <div class="cardHead">
+        <span class="microLabel">Buy credits</span>
+        <span class="badge" id="paystackState">Checking</span>
+      </div>
+      <p class="note" id="paystackNote"></p>
+      <div class="packGrid" id="walletPacks"></div>
+      <p class="walletNote" id="walletMessage" role="status" aria-live="polite"></p>
+    </section>
 
-    <section class="benefitSection"><div class="sectionIntro centered"><div><span class="pill">QUALITY YOU CAN FEEL</span><h2>Designed around presence,<br><em>not just pixels.</em></h2></div><p>Balanced real-time quality with graceful recovery, semantic boundaries, and a workflow that remains understandable.</p></div><div class="benefitTabs"><button class="active">Identity fidelity</button><button>Temporal stability</button><button>Privacy</button><button>HD delivery</button></div><div class="benefitPanel"><div><span class="benefitIcon">✦</span><h3>One reference.<br>Consistent identity.</h3><p>Preserve pose, expression, lighting, and movement while changing appearance.</p><ul><li>Continuous live-video transport</li><li>Occlusion-aware semantic blending</li><li>Adaptive quality without frame backlog</li></ul></div><img src="/static/eidomira-hero-3d.png" alt="Abstract glass face"></div></section>
+    <section class="card card--history" aria-label="Credit activity">
+      <span class="microLabel">Activity</span>
+      <ul class="ledger" id="walletLedger"></ul>
+    </section>
+  </div>
+</section>
 
-    <section class="pricingSection" id="pricing"><div class="sectionIntro centered"><div><span class="pill">SIMPLE, FLEXIBLE ACCESS</span><h2>Create occasionally.<br><em>Or make it your workflow.</em></h2></div><p>Start free after email verification, buy credits when needed, or unlock the best value with Live Pro.</p></div><div class="pricingGrid"><article><span class="planTag">FREE TRIAL</span><h3>Explore</h3><div class="price"><b>₦0</b><span>/ 7 days</span></div><p>Test the workflow before choosing a plan.</p><ul><li>100 verified-account credits</li><li>HD Face Swap and Lip Sync</li><li>No payment card required</li></ul><button class="button ghost priceSignup">Start free</button></article><article><span class="planTag">PAY AS YOU GO</span><h3>Creator Packs</h3><div class="price"><b>₦12k</b><span>from</span></div><p>Higher per-credit pricing, no recurring bill.</p><select id="paygPack" aria-label="PAYG credit pack"><option value="credits-200">200 credits · ₦12,000</option><option value="credits-500">500 credits · ₦27,500</option><option value="credits-1500">1,500 credits · ₦75,000</option><option value="credits-5000">5,000 credits · ₦225,000</option></select><ul><li>Credits valid for 12 months</li><li>All supported creative tools</li><li>No priority or API access</li></ul><button class="button ghost" id="paygBtn">Buy credits</button></article><article class="featuredPlan"><span class="popular">BEST VALUE</span><span class="planTag">LIVE PRO</span><h3>Professional</h3><div class="price"><b>₦59,900</b><span>/ month</span></div><p>Built for frequent creation and live presence.</p><ul><li>1,500 credits every month</li><li>10 min Full Live Swap</li><li>60 min/day Voice Changer</li><li>Priority processing + API</li><li>No promotional watermark</li></ul><button class="button primary" id="upgradeBtn">Choose monthly</button><button class="annualLink" id="annualBtn">Or ₦599,000 annually →</button></article></div><p class="provenanceNote">No promotional watermark on paid output. Synthetic-media provenance and required disclosures remain.</p></section>
+<!-- ── Settings ───────────────────────────────────────────────────────────── -->
+<section class="view" id="viewSettings" aria-label="Settings" hidden>
+  <div class="viewHead">
+    <div>
+      <span class="pill">Settings</span>
+      <h2>Your account and <span class="serif">this browser</span></h2>
+      <p>Everything the studio keeps about you, and everything it keeps on this device.</p>
+    </div>
+  </div>
 
-    <section class="callDock"><div><span class="microLabel">EIDOMIRA CALLS</span><strong>Host or join with transformed video</strong></div><input id="callName" placeholder="Display name" maxlength="48"><input id="callRoom" placeholder="Room code" maxlength="64"><button id="createCall">Create call</button><button id="joinCall">Join</button><button id="leaveCall" hidden>Leave</button><span id="callStatus">Not connected</span><div id="remoteGrid"></div></section>
-  </main>
+  <div class="settings">
+    <section class="card" aria-label="Account">
+      <span class="microLabel">Account</span>
+      <dl class="facts">
+        <div><dt>Email</dt><dd><b id="accountEmail">—</b></dd></div>
+        <div><dt>Verified</dt><dd><b id="accountVerified">—</b></dd></div>
+        <div><dt>Role</dt><dd><b id="accountRole">—</b></dd></div>
+      </dl>
+      <div class="cardActions">
+        <button class="btn btn--ghost" id="resendBtn" type="button" hidden>Resend verification email</button>
+        <a class="btn btn--ghost" href="#billing">Manage plan and credits</a>
+      </div>
+      <p class="note">Your plan, your balance and every credit movement are on the Billing page — this page never repeats them.</p>
+    </section>
 
-  <footer><div><a class="brand"><img class="brandmark" src="/static/eidomira-icon.png" alt=""><span>EIDOMIRA <b>LIVE</b></span></a><p>Be present. Appear differently.</p></div><div><span>PRODUCT</span><a href="#studio">Live Studio</a><a href="#suite">Creator Suite</a><a href="#pricing">Pricing</a></div><div><span>TRUST</span><a href="#workflow">Consent</a><a href="#studio">Privacy</a><a href="#studio">Provenance</a></div><small>© 2026 Eidomira · Consensual synthetic media · Frames are not stored</small></footer>
+    <section class="card" aria-label="Security">
+      <span class="microLabel">Security</span>
+      <dl class="facts">
+        <div><dt>This session ends</dt><dd><b id="sessionExpiry">—</b></dd></div>
+      </dl>
+
+      <form class="form" id="passwordForm">
+        <h3>Change password</h3>
+        <label>Current password<input id="pwCurrent" type="password" autocomplete="current-password" required></label>
+        <label>New password<input id="pwNew" type="password" autocomplete="new-password" minlength="10" required></label>
+        <label>Repeat new password<input id="pwConfirm" type="password" autocomplete="new-password" minlength="10" required></label>
+        <button class="btn btn--primary" id="pwSubmit" type="submit">Update password</button>
+        <p class="note" id="pwMessage" role="status" aria-live="polite"></p>
+      </form>
+
+      <p class="note">
+        Changing your password does not sign out sessions that are already open — they are
+        signed tokens, not lookups — so any other device you are signed in on stays signed in
+        until its session expires, within the hour shown above.
+      </p>
+      <div class="cardActions">
+        <button class="btn btn--ghost" id="logoutBtn" type="button">Sign out of this browser</button>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Preferences">
+      <span class="microLabel">Preferences</span>
+      <h3>Applied to your next session</h3>
+
+      <div class="qualityPick">
+        <span>Quality preset</span>
+        <label><input type="radio" name="quality" value="speed"><b>Speed</b><small>Lowest latency</small></label>
+        <label><input type="radio" name="quality" value="balanced" checked><b>Balanced</b><small>Recommended</small></label>
+        <label><input type="radio" name="quality" value="quality"><b>Quality</b><small>Most detail</small></label>
+      </div>
+
+      <label class="selectRow">Camera
+        <select id="cameraDevice"><option value="">Default camera</option></select>
+      </label>
+      <label class="selectRow">Microphone
+        <select id="micDevice"><option value="">Default microphone</option></select>
+      </label>
+      <label class="checkRow"><input id="motionToggle" type="checkbox"> Reduce motion effects</label>
+      <p class="note" id="deviceNote">Device names appear once you have allowed camera access at least once in this browser.</p>
+      <p class="note" id="prefsMessage" role="status" aria-live="polite"></p>
+      <div class="cardActions">
+        <button class="btn btn--ghost" id="refreshDevices" type="button">Look for devices</button>
+      </div>
+      <p class="note">Preferences are stored in this browser only. They are not an account setting and do not follow you to another device.</p>
+    </section>
+
+    <section class="card" aria-label="Privacy and data">
+      <span class="microLabel">Privacy &amp; data</span>
+      <dl class="facts">
+        <div><dt>Frames</dt><dd>Processed in memory, never written to disk</dd></div>
+        <div><dt>Identity session</dt><dd>Expires automatically <b id="privacyTtl">after enrolling</b></dd></div>
+        <div><dt>Consent</dt><dd id="consentState">Required per session, and recorded</dd></div>
+      </dl>
+      <p class="note">
+        Nothing in this browser outlives your sign-out, and the account itself holds only the
+        email address, the password hash, credits and the ledger entries you can see on
+        Billing.
+      </p>
+      <div class="cardActions">
+        <button class="btn btn--ghost" id="forgetBtn" type="button">Forget this browser</button>
+      </div>
+      <p class="note" id="forgetMessage" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card" aria-label="Engine and diagnostics">
+      <span class="microLabel">Engine &amp; diagnostics</span>
+      <dl class="facts">
+        <div><dt>Backend</dt><dd><b id="diagBackend">—</b></dd></div>
+        <div><dt>Provider</dt><dd><b id="diagProvider">—</b></dd></div>
+        <div><dt>Accelerated</dt><dd><b id="diagAccelerated">—</b></dd></div>
+        <div><dt>Peers</dt><dd><b id="diagPeers">—</b></dd></div>
+        <div><dt>Relay</dt><dd><b id="diagTurn">—</b></dd></div>
+        <div><dt>Calls</dt><dd><b id="diagCalls">—</b></dd></div>
+        <div><dt>Self-verification</dt><dd><b id="diagSelfVerify">—</b></dd></div>
+      </dl>
+      <p class="note" id="diagNote"></p>
+      <div class="cardActions">
+        <button class="btn btn--ghost" id="refreshDiag" type="button">Check again</button>
+      </div>
+    </section>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="footer__inner">
+    <span>© 2026 Eidomira · Frames are never stored</span>
+    <span class="footer__links">
+      <a href="/">Landing page</a>
+      <a href="/api/docs">API docs</a>
+      <a href="/">Consent policy</a>
+    </span>
+  </div>
+</footer>
+
+<!-- ══ Auth modal ══════════════════════════════════════════════════════════ -->
+<div class="authModal" id="authModal" hidden>
+  <form class="authCard" id="authForm">
+    <button type="button" class="authClose" id="authClose" aria-label="Close">×</button>
+    <span class="pill">Eidomira account</span>
+    <h2 id="authTitle">Start your free trial</h2>
+    <p id="authCopy">Verify your email to receive 100 credits for 7 days. No card required.</p>
+    <input id="authEmail" type="email" placeholder="Email address" required autocomplete="email">
+    <input id="authPassword" type="password" placeholder="Password · 10+ characters" required minlength="10" autocomplete="new-password">
+    <button class="btn btn--primary" id="authSubmit" type="submit">Create account</button>
+    <button class="authSwitch" id="authSwitch" type="button">Already registered? Sign in</button>
+    <div class="demoRow" id="demoRow" hidden>
+      <span data-demo-label>Demo access · one click, or type the password below</span>
+      <button type="button" class="demoButton" data-role="user">
+        <b>Sign in as demo user</b><code data-email></code>
+      </button>
+      <button type="button" class="demoButton" data-role="admin">
+        <b>Sign in as admin</b><code data-email></code>
+      </button>
+      <p class="demoHint" id="demoHint" hidden></p>
+    </div>
+    <div class="authMessage" id="authMessage" role="status" aria-live="polite"></div>
+  </form>
 </div>
 
-<div class="authModal" id="authModal" hidden><form class="authCard" id="authForm"><button type="button" class="authClose" id="authClose">×</button><span class="pill">EIDOMIRA ACCOUNT</span><h2 id="authTitle">Start your free trial</h2><p id="authCopy">Verify your email to receive 100 credits for 7 days. No card required.</p><input id="authEmail" type="email" placeholder="Email address" required autocomplete="email"><input id="authPassword" type="password" placeholder="Password · 10+ characters" required minlength="10" autocomplete="new-password"><button class="button primary" id="authSubmit" type="submit">Create account</button><button class="authSwitch" id="authSwitch" type="button">Already registered? Sign in</button><div class="authMessage" id="authMessage"></div></form></div>
-<div class="cleanToast">OBS CLEAN OUTPUT · PRESS ESC TO EXIT · SYNTHETIC LABEL REMAINS EMBEDDED</div>
-<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script><script src="/static/app.js"></script>
-</body></html>
+<div class="cleanToast" role="status">OBS clean output · press Escape to exit · synthetic label remains embedded</div>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

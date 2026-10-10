@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""tools/launch_cloud_studio.py — Launch Cloud GPU WebRTC Studio with Public HTTPS Tunnel.
+
+Runs the Eidomira Neural WebRTC Studio on a Cloud GPU (e.g. Kaggle Tesla T4),
+exposes it via an instant, secure Cloudflare Tunnel (HTTPS with full camera access),
+and prints the clickable live studio URL for your Mac browser.
+
+Usage:
+    python tools/launch_cloud_studio.py
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+# Ensure immediate line flushing in Jupyter/Kaggle environments
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+CLOUDFLARED_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+CLOUDFLARED_BIN = ROOT / "cloudflared"
+
+
+def download_cloudflared():
+    for p in [Path("/kaggle/working/cloudflared"), CLOUDFLARED_BIN, Path("/usr/local/bin/cloudflared")]:
+        if p.exists() and p.stat().st_size > 10_000_000:
+            return p
+    target = Path("/kaggle/working/cloudflared") if Path("/kaggle/working").exists() else CLOUDFLARED_BIN
+    target.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Fetching Cloudflare tunnel binary into {target}…", flush=True)
+    for cmd in [
+        ["curl", "-fSL", "--connect-timeout", "15", "--max-time", "45", CLOUDFLARED_URL, "-o", str(target)],
+        ["wget", "-q", "--timeout=30", CLOUDFLARED_URL, "-O", str(target)],
+    ]:
+        try:
+            subprocess.run(cmd, check=True)
+            if target.exists() and target.stat().st_size > 10_000_000:
+                target.chmod(0o755)
+                print("Cloudflare Tunnel ready.", flush=True)
+                return target
+        except Exception:
+            continue
+    return None
+
+
+def is_port_open(port: int = 8000) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            return s.connect_ex(("127.0.0.1", port)) == 0
+    except Exception:
+        return False
+
+
+def main():
+    print("=" * 72, flush=True)
+    print("  EIDOMIRA CLOUD GPU LIVE WEBRTC STUDIO", flush=True)
+    print(f"  Python: {sys.version.split()[0]} | Working dir: {os.getcwd()}")
+    print("=" * 72, flush=True)
+
+    # 0. Ensure working directory is repo root and environment is configured
+    os.chdir(str(ROOT))
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+
+    os.environ["STUDIO_BACKEND"] = "liveportrait"
+    os.environ["STUDIO_ALLOWED_ORIGINS"] = "*"
+    os.environ["STUDIO_DEMO_LOGIN"] = "true"
+    os.environ["STUDIO_DEMO_PASSWORD"] = "eidomira-demo-2026"
+    os.environ["STUDIO_REQUIRE_SELF_VERIFICATION"] = "false"
+    os.environ["STUDIO_RESTORATION_VISIBILITY"] = "0.6"
+    os.environ["PYTHONUNBUFFERED"] = "1"
+
+    # 1. Verify WebRTC & Studio dependencies
+    pkgs = [
+        "aiortc", "av", "pydantic_settings", "argon2", "onnxruntime",
+        "rich", "pykalman", "albumentations", "tyro"
+    ]
+    missing = []
+    for pkg in pkgs:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+
+    if missing:
+        print(f"Installing missing studio dependencies: {' '.join(missing)}…", flush=True)
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
+            "onnxruntime", "pydantic-settings", "argon2-cffi", "aiortc", "av",
+            "python-multipart", "PyJWT", "rich", "pykalman", "albumentations", "tyro",
+        ], check=True)
+        print("Studio dependencies installed.", flush=True)
+    else:
+        print("Studio dependencies verified.", flush=True)
+
+    # 2. Ensure LivePortrait neural models are present
+    liveportrait_dir = Path("/kaggle/working/LivePortrait")
+    if not (liveportrait_dir / "src" / "live_portrait_wrapper.py").exists() and not (ROOT / "third_party" / "LivePortrait" / "src").exists():
+        print("LivePortrait not found. Initializing setup…", flush=True)
+        from tools.setup_liveportrait import main as setup_lp
+        setup_lp()
+
+    # Ensure ROOT is first in sys.path so 'app' always refers to eidomira/app, not LivePortrait/app.py
+    if str(ROOT) in sys.path:
+        sys.path.remove(str(ROOT))
+    sys.path.insert(0, str(ROOT))
+
+    if liveportrait_dir.exists() and str(liveportrait_dir) not in sys.path:
+        sys.path.append(str(liveportrait_dir))
+
+    print("\nTarget Neural Backend: LIVEPORTRAIT (Kling AI Reference Motion)", flush=True)
+
+    # 3. Setup Cloudflare Tunnel binary
+    cloudflared_path = download_cloudflared()
+    if cloudflared_path is None or not Path(cloudflared_path).exists():
+        for cand in [Path("/kaggle/working/cloudflared"), ROOT / "cloudflared", Path("/usr/local/bin/cloudflared")]:
+            if cand.exists():
+                cloudflared_path = cand
+                break
+
+    if cloudflared_path is None or not Path(cloudflared_path).exists():
+        print("Error: Cloudflare tunnel binary not found.", file=sys.stderr)
+        return 1
+
+    # 4. Open Cloudflare Tunnel
+    print("Opening secure HTTPS tunnel for Eidomira Studio…", flush=True)
+    log_file = Path("/tmp/cloudflared_studio.log")
+    if log_file.exists():
+        try:
+            log_file.unlink()
+        except Exception:
+            pass
+
+    tunnel_cmd = [
+        str(cloudflared_path), "tunnel",
+        "--no-autoupdate",
+        "--url", "http://127.0.0.1:8000",
+        "--logfile", str(log_file),
+    ]
+    tunnel_proc = subprocess.Popen(tunnel_cmd)
+
+    public_url = None
+    start_time = time.time()
+    while time.time() - start_time < 30:
+        if log_file.exists():
+            try:
+                content = log_file.read_text(errors="ignore")
+                match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", content)
+                if match:
+                    public_url = match.group(0)
+                    break
+            except Exception:
+                pass
+        time.sleep(0.5)
+
+    if public_url:
+        print("\n" + "#" * 72, flush=True)
+        print("  🎉 EIDOMIRA LIVE WEBCAM STUDIO IS LIVE!", flush=True)
+        print("#" * 72, flush=True)
+        print(f"\n  👉 OPEN THIS LINK ON YOUR MAC BROWSER (Chrome/Safari):", flush=True)
+        print(f"     {public_url}/app\n", flush=True)
+        print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026", flush=True)
+        print("#" * 72, flush=True)
+        print("\nStarting Eidomira Uvicorn server on port 8000…\n", flush=True)
+    else:
+        print("Starting Eidomira Uvicorn server on port 8000…", flush=True)
+
+    # 5. Launch Uvicorn in foreground with loaded app
+    import uvicorn
+    import traceback
+    try:
+        if str(ROOT) in sys.path:
+            sys.path.remove(str(ROOT))
+        sys.path.insert(0, str(ROOT))
+
+        print("\n--- Initializing LivePortrait Neural Engine ---", flush=True)
+        from app.engines.factory import create_engine
+        warmup_engine = create_engine()
+        if getattr(warmup_engine, "_initialized", False):
+            import torch
+            if hasattr(torch, "cuda") and torch.cuda.is_available() and getattr(torch.version, "cuda", None):
+                print("🚀 LIVEPORTRAIT NEURAL ENGINE READY ON GPU (CUDA)!\n", flush=True)
+            else:
+                print("⚡ LIVEPORTRAIT NEURAL ENGINE READY ON CPU!\n", flush=True)
+        else:
+            err = getattr(warmup_engine, "_init_error", "Unknown initialization failure")
+            print(f"⚠️ LivePortrait running in fallback mode: {err}\n", flush=True)
+
+        from app.main import app as fastapi_app
+        uvicorn.run(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
+    except Exception as exc:
+        print(f"\n[Server Error]: {exc}", flush=True)
+        traceback.print_exc()
+        time.sleep(30)
+    finally:
+        tunnel_proc.terminate()
+
+
+if __name__ == "__main__":
+    main()

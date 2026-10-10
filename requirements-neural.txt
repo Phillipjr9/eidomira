@@ -1,0 +1,39 @@
+# The optional neural stack — the swap, the parser and the restorer.
+#
+# The application runs without any of these: `STUDIO_BACKEND=diagnostic` is the default and
+# the three adapters are inert when their models are absent, by design, so a deployment is
+# not broken by a model it never had. Installing this file is what makes the neural path
+# loadable at all.
+#
+#   pip install -r requirements.txt -r requirements-neural.txt
+#
+# On a GPU host, replace onnxruntime with the build that matches the hardware:
+#   pip install onnxruntime-gpu        # CUDA
+#   pip install onnxruntime-directml   # Windows / DirectML
+# app/providers.py asks ONNX Runtime what the host exposes and falls back to CPU, so the
+# wrong choice is slow rather than fatal.
+
+onnxruntime>=1.20,<2
+
+# The swap adapter's loader, alignment and face analysis. `insightface.model_zoo.get_model`
+# reads the embedding map out of the ONNX graph and drives the session; `FaceAnalysis` needs
+# the buffalo_l pack, which it downloads on first use — that pack is part of the same
+# non-commercial licence as the swap weights. See tools/fetch_models.py.
+insightface>=0.7,<3
+
+# Only for the tools: building the stand-in graphs and reading a model's declared shapes.
+# Nothing in app/ imports it.
+onnx>=1.16,<2
+
+# NOTE, learned the hard way: insightface declares a dependency on `opencv-python`, the GUI
+# build, which wants libGL.so.1 — absent on a normal server image, and it fails with an
+# ImportError that names the library rather than the package. This project depends on
+# `opencv-python-headless` (see requirements.txt), and the two ship the same `cv2` package,
+# so installing both leaves a broken half-merged directory. If pip has pulled the GUI build
+# in, put it back:
+#
+#   pip uninstall -y opencv-python
+#   pip install --force-reinstall opencv-python-headless
+#
+# `pip check` still reports the unmet dependency afterwards. That warning is cosmetic: cv2
+# imports and works, which is what insightface actually needs.
