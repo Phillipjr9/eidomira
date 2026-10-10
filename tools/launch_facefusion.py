@@ -100,6 +100,10 @@ def main():
     if log_file.exists():
         log_file.unlink()
 
+    os.environ["GRADIO_SERVER_NAME"] = "0.0.0.0"
+    os.environ["GRADIO_SHARE"] = "True"
+    os.environ["PYTHONUNBUFFERED"] = "1"
+
     print("\nOpening secure HTTPS tunnel for FaceFusion UI…", flush=True)
     tunnel_cmd = [
         str(cf_path), "tunnel",
@@ -109,9 +113,11 @@ def main():
     ]
     tunnel_proc = subprocess.Popen(tunnel_cmd)
 
+    print("Connecting tunnel (takes ~4-6 seconds)", end="", flush=True)
     public_url = None
     start_time = time.time()
     while time.time() - start_time < 30:
+        print(".", end="", flush=True)
         if log_file.exists():
             try:
                 content = log_file.read_text(errors="ignore")
@@ -121,7 +127,7 @@ def main():
                     break
             except Exception:
                 pass
-        time.sleep(0.5)
+        time.sleep(0.8)
 
     if public_url:
         print("\n" + "#" * 72, flush=True)
