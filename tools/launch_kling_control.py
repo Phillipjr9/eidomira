@@ -15,8 +15,10 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -65,6 +67,15 @@ def download_cloudflared() -> Path:
     return target
 
 
+def is_port_open(port: int = 7860) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            return s.connect_ex(("127.0.0.1", port)) == 0
+    except Exception:
+        return False
+
+
 def main():
     print("=" * 72)
     print("  LAUNCHING KLING AI LIVEPORTRAIT (REFERENCE MOTION CONTROL)")
@@ -79,11 +90,12 @@ def main():
     else:
         print(f"Kling AI LivePortrait already present at {LP_DIR}", flush=True)
 
-    # 2. Check dependencies
+    # 2. Check complete dependencies (including rich, pykalman, tyro)
     print("\nChecking LivePortrait dependencies…", flush=True)
     pkgs = [
         "gradio", "pyyaml", "scipy", "imageio", "imageio-ffmpeg",
-        "albumentations", "tyro", "huggingface_hub", "onnxruntime"
+        "albumentations", "tyro", "huggingface_hub", "onnxruntime",
+        "rich", "pykalman", "lmdb"
     ]
     missing = []
     for pkg in pkgs:
@@ -137,7 +149,7 @@ def main():
         except Exception:
             pass
 
-    print("\nOpening secure Cloudflare HTTPS tunnel on port 7860…", flush=True)
+    print("\nOpening secure Cloudflare HTTPS tunnel…", flush=True)
     tunnel_cmd = [
         str(cf_bin), "tunnel",
         "--no-autoupdate",
@@ -148,7 +160,7 @@ def main():
 
     public_url = None
     start_time = time.time()
-    while time.time() - start_time < 30:
+    while time.time() - start_time < 20:
         if log_file.exists():
             try:
                 txt = log_file.read_text(errors="ignore")
@@ -160,11 +172,44 @@ def main():
                 pass
         time.sleep(0.5)
 
-    if public_url:
+    # 5. Start Kling AI LivePortrait in background and wait for port 7860
+    os.chdir(str(LP_DIR))
+    print("\nLoading Kling AI neural weights into GPU memory…", flush=True)
+    proc = subprocess.Popen(
+        [sys.executable, "-u", "app.py", "--server_port", "7860", "--server_name", "0.0.0.0"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    # Background thread to stream server logs
+    def stream_logs():
+        for line in iter(proc.stdout.readline, ""):
+            print(line, end="", flush=True)
+
+    log_thread = threading.Thread(target=stream_logs, daemon=True)
+    log_thread.start()
+
+    # Wait until port 7860 is listening before announcing ready
+    print("Waiting for server to bind to port 7860...", flush=True)
+    server_ready = False
+    start_wait = time.time()
+    while time.time() - start_wait < 60:
+        if is_port_open(7860):
+            server_ready = True
+            break
+        if proc.poll() is not None:
+            print(f"\nError: LivePortrait app exited with code {proc.returncode}", flush=True)
+            tunnel_proc.terminate()
+            return 1
+        time.sleep(1.0)
+
+    if server_ready and public_url:
         print("\n" + "#" * 72, flush=True)
-        print("  🎉 KLING AI LIVEPORTRAIT (REFERENCE MOTION CONTROL) IS READY!", flush=True)
+        print("  🎉 KLING AI LIVEPORTRAIT IS 100% READY AND LISTENING!", flush=True)
         print("#" * 72)
-        print(f"\n  👉 OPEN THIS LINK IN YOUR MAC BROWSER (Chrome/Safari):", flush=True)
+        print(f"\n  👉 CLICK THIS LINK IN YOUR MAC BROWSER (Chrome/Safari):", flush=True)
         print(f"     {public_url}\n", flush=True)
         print("  HOW TO USE:")
         print("  1. Upload your character portrait (e.g. Elon Musk photo)")
@@ -172,19 +217,10 @@ def main():
         print("  3. Click 'Animate' / 'Generate'!")
         print("  It will transfer all expressions, head movement, eye gaze, and speech!")
         print("#" * 72 + "\n", flush=True)
+    elif not server_ready:
+        print("⚠️ Warning: Port 7860 timed out. Inspecting output above.", flush=True)
 
-    # 5. Launch Kling AI LivePortrait Gradio App
     try:
-        os.chdir(str(LP_DIR))
-        proc = subprocess.Popen(
-            [sys.executable, "-u", "app.py", "--server_port", "7860", "--server_name", "0.0.0.0"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        for line in iter(proc.stdout.readline, ""):
-            print(line, end="", flush=True)
         proc.wait()
     except KeyboardInterrupt:
         print("\nStopping Kling AI LivePortrait…")
