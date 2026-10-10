@@ -103,6 +103,7 @@ def main():
             c = core_file.read_text()
             direct_cli = (
                 "def cli() -> None:\n"
+                "\timport traceback, tempfile\n"
                 "\tsignal.signal(signal.SIGINT, signal_exit)\n"
                 "\tprogram = create_program()\n"
                 "\targs = vars(program.parse_known_args()[0])\n"
@@ -110,10 +111,15 @@ def main():
                 "\tstate_manager.init_item('command', 'run')\n"
                 "\tstate_manager.init_item('ui_layouts', ['default'])\n"
                 "\tstate_manager.init_item('open_browser', False)\n"
+                "\tif not state_manager.get_item('temp_path'):\n"
+                "\t\tstate_manager.init_item('temp_path', tempfile.gettempdir())\n"
                 "\tlogger.init('info')\n"
-                "\timport facefusion.uis.core as ui\n"
-                "\tui.init()\n"
-                "\tui.launch()\n\n"
+                "\ttry:\n"
+                "\t\timport facefusion.uis.core as ui\n"
+                "\t\tui.init()\n"
+                "\t\tui.launch()\n"
+                "\texcept Exception:\n"
+                "\t\ttraceback.print_exc()\n\n"
             )
             c = re.sub(r"def cli\(\) -> None:[\s\S]*?(?=def route)", direct_cli, c)
             core_file.write_text(c)
