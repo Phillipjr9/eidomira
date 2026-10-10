@@ -62,6 +62,7 @@ def main():
     parser.add_argument("--audio", type=Path, default=ROOT / "static" / "speech-elon.mp3", help="Driving speech audio")
     parser.add_argument("--output", type=Path, default=ROOT / "final_swapped_lipsync.mp4", help="Output MP4 video")
     parser.add_argument("--fps", type=int, default=25, help="Video frame rate")
+    parser.add_argument("--accept-licence", "--accept-license", dest="accept_licence", action="store_true", help="Acknowledge non-commercial research licence")
     args = parser.parse_args()
 
     print("=" * 72)
@@ -84,6 +85,7 @@ def main():
         "--source", str(args.source),
         "--target", str(args.target),
         "--output", str(swapped_image),
+        "--enhance",
     ]
     print(f"Executing: {' '.join(swap_cmd)}\n", flush=True)
     subprocess.run(swap_cmd, check=True)
