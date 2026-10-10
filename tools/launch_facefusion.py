@@ -2,18 +2,16 @@
 """tools/launch_facefusion.py — 1-Click FaceFusion WebUI Cloud GPU Runner.
 
 Clones the official FaceFusion repository (https://github.com/facefusion/facefusion),
-opens a secure Cloudflare HTTPS tunnel, and launches the FaceFusion video-to-video
-platform directly on the Tesla T4 GPU.
+enables public sharing, and launches the FaceFusion video-to-video swapping platform
+directly on the Tesla T4 GPU with an instant public link.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,28 +21,6 @@ FF_DIR = Path("/kaggle/working/facefusion") if Path("/kaggle/working").exists() 
 def run_cmd(cmd: list[str], cwd: Path | None = None) -> None:
     print(f"Running: {' '.join(cmd)}", flush=True)
     subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True)
-
-
-def download_cloudflared() -> Path:
-    cf = Path("/kaggle/working/cloudflared") if Path("/kaggle/working").exists() else (ROOT / "cloudflared")
-    if cf.exists() and cf.stat().st_size > 10_000_000:
-        return cf
-
-    cf.parent.mkdir(parents=True, exist_ok=True)
-    url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
-    for tool in ["curl", "wget"]:
-        if shutil.which(tool):
-            try:
-                if tool == "curl":
-                    run_cmd(["curl", "-fSL", "--connect-timeout", "15", url, "-o", str(cf)])
-                else:
-                    run_cmd(["wget", "-q", "--timeout=30", url, "-O", str(cf)])
-                if cf.exists() and cf.stat().st_size > 10_000_000:
-                    cf.chmod(0o755)
-                    return cf
-            except Exception:
-                continue
-    return cf
 
 
 def main():
@@ -89,65 +65,50 @@ def main():
     else:
         print("All dependencies already verified.", flush=True)
 
-    # 3. Setup Cloudflare tunnel
-    cf_path = download_cloudflared()
-    if not cf_path.exists():
-        print("Error: Could not obtain cloudflared binary.", file=sys.stderr)
-        return 1
-
-    log_file = Path("/tmp/cloudflared_ff.log")
-    if log_file.exists():
+    # 3. Enable Gradio public share in FaceFusion layouts
+    layout_file = FF_DIR / "facefusion" / "uis" / "layouts" / "default.py"
+    if layout_file.exists():
         try:
-            log_file.unlink()
+            content = layout_file.read_text()
+            if "share = True" not in content:
+                content = content.replace("ui.launch(", "ui.launch(share = True, ")
+                layout_file.write_text(content)
+                print("Enabled public Gradio sharing in FaceFusion.", flush=True)
+        except Exception as exc:
+            print(f"Note on layout patch: {exc}", flush=True)
+
+    os.environ["GRADIO_SERVER_NAME"] = "0.0.0.0"
+    os.environ["GRADIO_SHARE"] = "True"
+    os.environ["PYTHONUNBUFFERED"] = "1"
+
+    # 4. Optional Cloudflare tunnel if binary already present
+    tunnel_proc = None
+    cf_cand = Path("/kaggle/working/cloudflared")
+    if cf_cand.exists() and cf_cand.stat().st_size > 10_000_000:
+        try:
+            tunnel_proc = subprocess.Popen(
+                [str(cf_cand), "tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:7860"],
+            )
         except Exception:
             pass
 
-    print("\nOpening secure HTTPS tunnel for FaceFusion UI…", flush=True)
-    tunnel_cmd = [
-        str(cf_path), "tunnel",
-        "--no-autoupdate",
-        "--url", "http://127.0.0.1:7860",
-        "--logfile", str(log_file),
-    ]
-    tunnel_proc = subprocess.Popen(tunnel_cmd)
+    # 5. Launch FaceFusion WebUI
+    print("\n" + "#" * 72)
+    print("  🚀 STARTING OFFICIAL FACEFUSION ON TESLA T4 GPU...")
+    print("  Look for the public link below (https://xxxx.gradio.live)")
+    print("#" * 72 + "\n", flush=True)
 
-    public_url = None
-    start_time = time.time()
-    while time.time() - start_time < 25:
-        if log_file.exists():
-            try:
-                content = log_file.read_text(errors="ignore")
-                match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", content)
-                if match:
-                    public_url = match.group(0)
-                    break
-            except Exception:
-                pass
-        time.sleep(0.5)
-
-    if public_url:
-        print("\n" + "#" * 72, flush=True)
-        print("  🎉 FACEFUSION PLATFORM IS LIVE ON CLOUD GPU!", flush=True)
-        print("#" * 72)
-        print(f"\n  👉 OPEN THIS LINK IN YOUR MAC BROWSER (Chrome/Safari):", flush=True)
-        print(f"     {public_url}\n", flush=True)
-        print("  1. Drop your Source Face photo (e.g. Elon)")
-        print("  2. Drop your Target Video (any moving video clip)")
-        print("  3. Select processors: face_swapper + face_enhancer")
-        print("  4. Click START to render your full moving video!")
-        print("#" * 72 + "\n", flush=True)
-    else:
-        print("Notice: Tunnel started. Launching FaceFusion on port 7860…", flush=True)
-
-    # 4. Run FaceFusion WebUI
     try:
         os.chdir(str(FF_DIR))
-        print("Starting FaceFusion engine on port 7860…\n", flush=True)
         subprocess.run([sys.executable, "facefusion.py", "run"], check=True)
     except KeyboardInterrupt:
         print("\nStopping FaceFusion…")
     finally:
-        tunnel_proc.terminate()
+        if tunnel_proc:
+            try:
+                tunnel_proc.terminate()
+            except Exception:
+                pass
     return 0
 
 
