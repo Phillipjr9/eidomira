@@ -51,15 +51,21 @@ def download_cloudflared() -> Path:
 def main():
     print("=" * 72)
     print("  LAUNCHING OFFICIAL FACEFUSION PLATFORM ON CLOUD GPU")
+    print(f"  Python: {sys.version.split()[0]} | Working dir: {os.getcwd()}")
     print("=" * 72, flush=True)
 
-    # 1. Clone or reset official FaceFusion repository
+    # 1. Clean clone of official FaceFusion repository
     if not (FF_DIR / "facefusion.py").exists():
         FF_DIR.parent.mkdir(parents=True, exist_ok=True)
         print(f"Cloning official FaceFusion repository into {FF_DIR}…", flush=True)
         run_cmd(["git", "clone", "--depth", "1", "https://github.com/facefusion/facefusion.git", str(FF_DIR)])
     else:
-        print(f"FaceFusion already present at {FF_DIR}", flush=True)
+        print(f"Resetting FaceFusion to clean state at {FF_DIR}…", flush=True)
+        try:
+            subprocess.run(["git", "-C", str(FF_DIR), "checkout", "--", "."], check=False)
+            subprocess.run(["git", "-C", str(FF_DIR), "clean", "-fd"], check=False)
+        except Exception:
+            pass
 
     # 2. Install lightweight dependencies
     print("\nChecking FaceFusion dependencies…", flush=True)
@@ -90,7 +96,7 @@ def main():
     else:
         print("All dependencies already verified.", flush=True)
 
-    # 3. Patch exit gates and diagnostic traces into FaceFusion
+    # 3. Patch pre-checks in FaceFusion
     core_file = FF_DIR / "facefusion" / "core.py"
     if core_file.exists():
         try:
@@ -115,10 +121,13 @@ def main():
     if exit_helper.exists():
         try:
             e = exit_helper.read_text()
-            if "HARD EXIT TRIGGERED" not in e:
-                e = e.replace("def hard_exit(error_code : ErrorCode) -> None:\n\tsys.exit(error_code)",
-                              "def hard_exit(error_code : ErrorCode) -> None:\n\tprint(f'\\n[HARD EXIT CODE {error_code}]\\n', flush=True)\n\tsys.exit(error_code)")
-                exit_helper.write_text(e)
+            e = re.sub(
+                r"def hard_exit\(error_code.*?\):.*?(?=\ndef|\Z)",
+                "def hard_exit(error_code : ErrorCode) -> None:\n\tprint(f'\\n[HARD EXIT CODE {error_code}]\\n', flush=True)\n\tsys.exit(error_code)\n\n",
+                e,
+                flags=re.DOTALL
+            )
+            exit_helper.write_text(e)
         except Exception:
             pass
 
@@ -127,8 +136,8 @@ def main():
         try:
             l_text = layout_file.read_text()
             l_text = re.sub(
-                r"def run\(ui.*?\):.*",
-                "def run(ui : gradio.Blocks) -> None:\n\tui.launch(server_name='0.0.0.0', server_port=7860, inbrowser=False)\n",
+                r"def run\(ui.*?\):.*?(?=\ndef|\Z)",
+                "def run(ui : gradio.Blocks) -> None:\n\tprint('\\nFaceFusion Gradio server listening on http://0.0.0.0:7860!\\n', flush=True)\n\tui.launch(server_name='0.0.0.0', server_port=7860, inbrowser=False)\n\n",
                 l_text,
                 flags=re.DOTALL
             )
@@ -170,11 +179,10 @@ def main():
 
     if public_url:
         print("\n" + "#" * 72, flush=True)
-        print("  🎉 OFFICIAL FACEFUSION PLATFORM STARTING!", flush=True)
+        print("  🎉 CLOUDFLARE TUNNEL OPENED!", flush=True)
         print("#" * 72)
-        print(f"\n  👉 YOUR PERMANENT CLOUD LINK:", flush=True)
-        print(f"     {public_url}\n", flush=True)
-        print("  Waiting for FaceFusion engine to bind to port 7860...")
+        print(f"\n  👉 LINK: {public_url}\n", flush=True)
+        print("  Waiting for FaceFusion engine to finish binding to port 7860...")
         print("#" * 72 + "\n", flush=True)
 
     # 5. Launch FaceFusion WebUI with live line-by-line output
@@ -191,6 +199,8 @@ def main():
             print(line, end="", flush=True)
         proc.wait()
         print(f"\nFaceFusion process ended with code {proc.returncode}.", flush=True)
+        if proc.returncode != 0:
+            print("⚠️ FaceFusion did not stay running. Please see the output above for the exact error.", flush=True)
     except KeyboardInterrupt:
         print("\nStopping FaceFusion…")
     finally:
