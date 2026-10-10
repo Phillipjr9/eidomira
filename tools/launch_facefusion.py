@@ -36,7 +36,7 @@ def main():
     else:
         print(f"FaceFusion already present at {FF_DIR}", flush=True)
 
-    # 2. Install FaceFusion requirements
+    # 2. Install FaceFusion requirements with lightweight, fast wheels
     print("\nChecking FaceFusion dependencies…", flush=True)
     pkgs = ["gradio", "gradio_rangeslider", "cv2", "onnx", "onnxruntime", "tqdm", "scipy", "psutil"]
     missing = []
@@ -49,7 +49,7 @@ def main():
             elif pkg == "gradio_rangeslider":
                 missing.append("gradio-rangeslider")
             elif pkg == "onnxruntime":
-                missing.append("onnxruntime-gpu")
+                missing.append("onnxruntime")
             else:
                 missing.append(pkg)
 
@@ -58,14 +58,27 @@ def main():
         for pkg in missing:
             print(f"  Installing {pkg}…", flush=True)
             if pkg in ("gradio", "gradio-rangeslider"):
-                subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", pkg], check=True)
+                subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--no-deps", pkg], check=True)
             else:
-                subprocess.run([sys.executable, "-m", "pip", "install", pkg], check=True)
+                subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", pkg], check=True)
         print("✅ Dependencies successfully installed!", flush=True)
     else:
         print("All dependencies already verified.", flush=True)
 
-    # 3. Enable Gradio public share in FaceFusion layouts
+    # 3. Patch download pipe deadlocks in Linux headless environments
+    dl_file = FF_DIR / "facefusion" / "download.py"
+    if dl_file.exists():
+        try:
+            content = dl_file.read_text()
+            old_pipe = "stdin = subprocess.PIPE, stdout = subprocess.PIPE"
+            new_pipe = "stdin = subprocess.DEVNULL, stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL"
+            if old_pipe in content:
+                content = content.replace(old_pipe, new_pipe)
+                dl_file.write_text(content)
+        except Exception as exc:
+            print(f"Note on download patch: {exc}", flush=True)
+
+    # 4. Enable Gradio public share in FaceFusion layouts
     layout_file = FF_DIR / "facefusion" / "uis" / "layouts" / "default.py"
     if layout_file.exists():
         try:
@@ -81,7 +94,7 @@ def main():
     os.environ["GRADIO_SHARE"] = "True"
     os.environ["PYTHONUNBUFFERED"] = "1"
 
-    # 4. Optional Cloudflare tunnel if binary already present
+    # 5. Optional Cloudflare tunnel if binary already present
     tunnel_proc = None
     cf_cand = Path("/kaggle/working/cloudflared")
     if cf_cand.exists() and cf_cand.stat().st_size > 10_000_000:
@@ -92,11 +105,11 @@ def main():
         except Exception:
             pass
 
-    # 5. Launch FaceFusion WebUI with unbuffered output & info logging
+    # 6. Launch FaceFusion WebUI with unbuffered output & info logging
     print("\n" + "#" * 72)
-    print("  🚀 STARTING OFFICIAL FACEFUSION ON TESLA T4 GPU...")
-    print("  Downloading official models & initializing UI (approx 30-45s)...")
-    print("  Please keep this running — the live link will appear below:")
+    print("  🚀 STARTING OFFICIAL FACEFUSION ON CLOUD GPU...")
+    print("  Initializing UI and model components...")
+    print("  The live public link will appear below:")
     print("#" * 72 + "\n", flush=True)
 
     try:
