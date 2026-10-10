@@ -269,6 +269,9 @@ class LivePortraitEngine(FaceSwapEngine):
             return FrameResult(result_rgb, True, True, latency)
 
         except Exception as exc:
-            # Fallback to driving frame if a frame fails
+            # Log error and fallback to driving frame
+            import traceback
+            print(f"❌ [LivePortrait Process Error]: {exc}", flush=True)
+            traceback.print_exc()
             latency = (time.perf_counter() - start) * 1000.0
             return FrameResult(rgb, False, True, latency)

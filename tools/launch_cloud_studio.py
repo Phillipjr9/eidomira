@@ -171,6 +171,16 @@ def main():
         if str(ROOT) in sys.path:
             sys.path.remove(str(ROOT))
         sys.path.insert(0, str(ROOT))
+
+        print("\n--- Initializing LivePortrait Neural Engine on GPU ---", flush=True)
+        from app.engines.factory import create_engine
+        warmup_engine = create_engine()
+        if getattr(warmup_engine, "_initialized", False):
+            print("🚀 LIVEPORTRAIT NEURAL ENGINE INITIALIZED ON GPU SUCCESSFULLY!\n", flush=True)
+        else:
+            err = getattr(warmup_engine, "_init_error", "Unknown initialization failure")
+            print(f"⚠️ LivePortrait running in fallback mode: {err}\n", flush=True)
+
         from app.main import app as fastapi_app
         uvicorn.run(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
     except Exception as exc:
