@@ -119,65 +119,7 @@ def main():
         print("Error: Cloudflare tunnel binary not found.", file=sys.stderr)
         return 1
 
-    # 4. Start Uvicorn Server in background
-    print(f"\nStarting Eidomira Neural Studio on port 8000 (Backend: {selected_backend.upper()})…")
-    env = os.environ.copy()
-    env["STUDIO_BACKEND"] = selected_backend
-    env["STUDIO_ALLOWED_ORIGINS"] = "*"
-    env["STUDIO_DEMO_LOGIN"] = "true"
-    env["STUDIO_DEMO_PASSWORD"] = "eidomira-demo-2026"
-    env["STUDIO_REQUIRE_SELF_VERIFICATION"] = "false"
-    env["STUDIO_RESTORATION_VISIBILITY"] = "0.6"
-    env["STUDIO_MODEL_PATH"] = str(model_path)
-    python_paths = [str(ROOT)]
-    if liveportrait_dir.exists():
-        python_paths.insert(0, str(liveportrait_dir))
-    if (ROOT / "third_party" / "LivePortrait").exists():
-        python_paths.insert(0, str(ROOT / "third_party" / "LivePortrait"))
-    env["PYTHONPATH"] = ":".join(python_paths) + (":" + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
-    env["PYTHONUNBUFFERED"] = "1"
-
-    # Pre-seed demo accounts in the database
-    try:
-        import app.demo as demo
-        demo.ensure_accounts()
-        print("  Demo accounts ready (demo@eidomira.test / eidomira-demo-2026)")
-    except Exception as exc:
-        print(f"  Demo account notice: {exc}")
-
-    server_cmd = [
-        sys.executable, "-m", "uvicorn",
-        "app.main:app",
-        "--host", "0.0.0.0",
-        "--port", "8000",
-        "--workers", "1",
-    ]
-    server_proc = subprocess.Popen(
-        server_cmd,
-        cwd=str(ROOT),
-        env=env,
-    )
-
-    print("Waiting for neural models to mount and port 8000 to listen…", flush=True)
-    server_healthy = False
-    start_wait = time.time()
-    while time.time() - start_wait < 60:
-        if server_proc.poll() is not None:
-            print(f"\nBackend process exited with code {server_proc.returncode}!", flush=True)
-            return 1
-        try:
-            with socket.create_connection(("127.0.0.1", 8000), timeout=1.0):
-                server_healthy = True
-                break
-        except (OSError, ConnectionRefusedError):
-            time.sleep(1.0)
-
-    if not server_healthy:
-        print("Warning: Backend took longer than expected to initialize. Check logs above.", flush=True)
-    else:
-        print("✅ Backend server verified and listening on port 8000.", flush=True)
-
-    # 5. Start Cloudflare Tunnel
+    # 4. Open Cloudflare Tunnel and acquire live public URL
     print("Opening secure HTTPS tunnel for camera access…", flush=True)
     tunnel_cmd = [
         str(cloudflared_path), "tunnel",
@@ -186,9 +128,8 @@ def main():
     tunnel_proc = subprocess.Popen(tunnel_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     public_url = None
-    # Parse tunnel output to find the https://xxxx.trycloudflare.com link
     start_time = time.time()
-    while time.time() - start_time < 30:
+    while time.time() - start_time < 25:
         line = tunnel_proc.stdout.readline()
         if not line:
             continue
@@ -205,16 +146,29 @@ def main():
         print(f"     {public_url}/app\n", flush=True)
         print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026", flush=True)
         print("#" * 72, flush=True)
-        print("\nStreaming live WebRTC GPU pipeline at 30+ FPS… Keep this cell running!", flush=True)
+        print("\nStarting LivePortrait neural server on port 8000…\n", flush=True)
     else:
-        print("Warning: Could not automatically detect tunnel URL. Check tunnel logs.", flush=True)
+        print("Starting LivePortrait neural server on port 8000…", flush=True)
 
-    # Stream logs
+    # 5. Configure environment and launch Uvicorn directly in foreground
+    os.environ["STUDIO_BACKEND"] = selected_backend
+    os.environ["STUDIO_ALLOWED_ORIGINS"] = "*"
+    os.environ["STUDIO_DEMO_LOGIN"] = "true"
+    os.environ["STUDIO_DEMO_PASSWORD"] = "eidomira-demo-2026"
+    os.environ["STUDIO_REQUIRE_SELF_VERIFICATION"] = "false"
+    os.environ["STUDIO_RESTORATION_VISIBILITY"] = "0.6"
+    os.environ["STUDIO_MODEL_PATH"] = str(model_path)
+    os.environ["PYTHONUNBUFFERED"] = "1"
+
+    if liveportrait_dir.exists() and str(liveportrait_dir) not in sys.path:
+        sys.path.insert(0, str(liveportrait_dir))
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+
+    import uvicorn
     try:
-        server_proc.wait()
-    except KeyboardInterrupt:
-        print("\nShutting down server…", flush=True)
-        server_proc.terminate()
+        uvicorn.run("app.main:app", host="0.0.0.0", port=8000, log_level="info")
+    finally:
         tunnel_proc.terminate()
 
 
