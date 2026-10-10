@@ -123,6 +123,7 @@ def main():
     print("Opening secure HTTPS tunnel for camera access…", flush=True)
     tunnel_cmd = [
         str(cloudflared_path), "tunnel",
+        "--no-autoupdate",
         "--url", "http://127.0.0.1:8000",
     ]
     tunnel_proc = subprocess.Popen(tunnel_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -137,6 +138,19 @@ def main():
         if match:
             public_url = match.group(0)
             break
+
+    # Keep tunnel output drained in background so the pipe buffer never blocks
+    import threading
+    def _keep_tunnel_alive(proc):
+        try:
+            while proc.poll() is None:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+        except Exception:
+            pass
+
+    threading.Thread(target=_keep_tunnel_alive, args=(tunnel_proc,), daemon=True).start()
 
     if public_url:
         print("\n" + "#" * 72, flush=True)
@@ -166,8 +180,13 @@ def main():
         sys.path.insert(0, str(ROOT))
 
     import uvicorn
+    import traceback
     try:
         uvicorn.run("app.main:app", host="0.0.0.0", port=8000, log_level="info")
+    except Exception as exc:
+        print(f"\n[Server Error]: {exc}", flush=True)
+        traceback.print_exc()
+        time.sleep(10)
     finally:
         tunnel_proc.terminate()
 
