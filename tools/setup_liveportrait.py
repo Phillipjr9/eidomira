@@ -74,20 +74,30 @@ def main():
     # 4. Setup Cloudflare tunnel binary
     cf = Path("/kaggle/working/cloudflared") if Path("/kaggle/working").exists() else (ROOT / "cloudflared")
     if not (cf.exists() and cf.stat().st_size > 10_000_000):
-        print(f"\nFetching Cloudflare tunnel binary into {cf}…")
+        print(f"\nFetching Cloudflare tunnel binary into {cf}…", flush=True)
         cf.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            subprocess.run([
-                "curl", "-fSL", "--connect-timeout", "15",
-                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
-                "-o", str(cf)
-            ], check=True)
-            cf.chmod(0o755)
-            print("Cloudflare tunnel binary ready.")
-        except Exception as exc:
-            print(f"Cloudflare binary notice: {exc}")
+        success = False
+        for cmd in [
+            ["curl", "-fSL", "--connect-timeout", "15", "--max-time", "45",
+             "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+             "-o", str(cf)],
+            ["wget", "-q", "--timeout=30",
+             "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+             "-O", str(cf)],
+        ]:
+            try:
+                subprocess.run(cmd, check=True)
+                if cf.exists() and cf.stat().st_size > 10_000_000:
+                    cf.chmod(0o755)
+                    print("Cloudflare tunnel binary ready.", flush=True)
+                    success = True
+                    break
+            except Exception:
+                continue
+        if not success:
+            print("Notice: Cloudflare binary download will be retried at launch.", flush=True)
     else:
-        print(f"Cloudflare tunnel binary already present at {cf}")
+        print(f"Cloudflare tunnel binary already present at {cf}", flush=True)
 
     print("\n✅ LivePortrait setup completed successfully!")
     return 0

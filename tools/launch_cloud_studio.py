@@ -43,18 +43,19 @@ def download_cloudflared():
     target = Path("/kaggle/working/cloudflared") if Path("/kaggle/working").exists() else CLOUDFLARED_BIN
     target.parent.mkdir(parents=True, exist_ok=True)
     print(f"Fetching Cloudflare tunnel binary into {target}…", flush=True)
-    try:
-        subprocess.run([
-            "curl", "-fSL", "--connect-timeout", "15",
-            CLOUDFLARED_URL,
-            "-o", str(target)
-        ], check=True)
-        target.chmod(0o755)
-        print("Cloudflare Tunnel ready.", flush=True)
-        return target
-    except Exception as exc:
-        print(f"Cloudflare download notice: {exc}", flush=True)
-        return None
+    for cmd in [
+        ["curl", "-fSL", "--connect-timeout", "15", "--max-time", "45", CLOUDFLARED_URL, "-o", str(target)],
+        ["wget", "-q", "--timeout=30", CLOUDFLARED_URL, "-O", str(target)],
+    ]:
+        try:
+            subprocess.run(cmd, check=True)
+            if target.exists() and target.stat().st_size > 10_000_000:
+                target.chmod(0o755)
+                print("Cloudflare Tunnel ready.", flush=True)
+                return target
+        except Exception:
+            continue
+    return None
 
 
 def main():
