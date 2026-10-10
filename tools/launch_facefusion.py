@@ -108,40 +108,15 @@ def main():
         except Exception as exc:
             print(f"Note on core patch: {exc}", flush=True)
 
-    prog_helper = FF_DIR / "facefusion" / "program_helper.py"
-    if prog_helper.exists():
-        try:
-            p = prog_helper.read_text()
-            p = re.sub(r"def validate_args\(program.*?-> bool:.*?(?=\ndef )", "def validate_args(program : ArgumentParser) -> bool:\n\treturn True\n\n", p, flags=re.DOTALL)
-            prog_helper.write_text(p)
-        except Exception:
-            pass
-
-    exit_helper = FF_DIR / "facefusion" / "exit_helper.py"
-    if exit_helper.exists():
-        try:
-            e = exit_helper.read_text()
-            e = re.sub(
-                r"def hard_exit\(error_code.*?\):.*?(?=\ndef|\Z)",
-                "def hard_exit(error_code : ErrorCode) -> None:\n\tprint(f'\\n[HARD EXIT CODE {error_code}]\\n', flush=True)\n\tsys.exit(error_code)\n\n",
-                e,
-                flags=re.DOTALL
-            )
-            exit_helper.write_text(e)
-        except Exception:
-            pass
-
     layout_file = FF_DIR / "facefusion" / "uis" / "layouts" / "default.py"
     if layout_file.exists():
         try:
             l_text = layout_file.read_text()
-            l_text = re.sub(
-                r"def run\(ui.*?\):.*?(?=\ndef|\Z)",
-                "def run(ui : gradio.Blocks) -> None:\n\tprint('\\nFaceFusion Gradio server listening on http://0.0.0.0:7860!\\n', flush=True)\n\tui.launch(server_name='0.0.0.0', server_port=7860, inbrowser=False)\n\n",
-                l_text,
-                flags=re.DOTALL
-            )
-            layout_file.write_text(l_text)
+            old_launch = "ui.launch(favicon_path = 'facefusion.ico', inbrowser = state_manager.get_item('open_browser'))"
+            new_launch = "print('\\n=== FaceFusion Gradio server is now listening on port 7860 ===\\n', flush=True)\n\tui.launch(server_name = '0.0.0.0', server_port = 7860, inbrowser = False)"
+            if old_launch in l_text:
+                l_text = l_text.replace(old_launch, new_launch)
+                layout_file.write_text(l_text)
         except Exception as exc:
             print(f"Note on layout patch: {exc}", flush=True)
 
@@ -199,8 +174,6 @@ def main():
             print(line, end="", flush=True)
         proc.wait()
         print(f"\nFaceFusion process ended with code {proc.returncode}.", flush=True)
-        if proc.returncode != 0:
-            print("⚠️ FaceFusion did not stay running. Please see the output above for the exact error.", flush=True)
     except KeyboardInterrupt:
         print("\nStopping FaceFusion…")
     finally:
