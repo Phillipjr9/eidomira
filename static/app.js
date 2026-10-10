@@ -678,15 +678,17 @@ document.querySelectorAll('.presetBtn').forEach(btn=>{
   btn.onclick=async()=>{
     try{
       const src=btn.dataset.src;
-      status('Loading specimen '+btn.textContent.trim()+'…');
+      const name=btn.textContent.trim();
+      status('Loading preset '+name+'…');
       const res=await fetch(src);
       selectedPresetBlob=await res.blob();
       $('sourcePreview').src=src;
       $('uploadCard').classList.add('hasImage');
       $('consent').checked=true;
-      status('Selected '+btn.textContent.trim()+'. Click Enroll identity to activate.');
+      status('Selected '+name+'. Enrolling identity…');
+      setTimeout(()=>{$('enrollBtn').click()},100);
     }catch(e){
-      status('Failed to load specimen: '+e.message,true);
+      status('Failed to load preset: '+e.message,true);
     }
   };
 });
