@@ -122,36 +122,34 @@ def main():
 
     # 4. Open Cloudflare Tunnel and acquire live public URL
     print("Opening secure HTTPS tunnel for camera access…", flush=True)
+    log_file = Path("/tmp/cloudflared.log")
+    if log_file.exists():
+        try:
+            log_file.unlink()
+        except Exception:
+            pass
+
     tunnel_cmd = [
         str(cloudflared_path), "tunnel",
         "--no-autoupdate",
         "--url", "http://127.0.0.1:8000",
+        "--logfile", str(log_file),
     ]
-    tunnel_proc = subprocess.Popen(tunnel_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    tunnel_proc = subprocess.Popen(tunnel_cmd)
 
     public_url = None
     start_time = time.time()
-    while time.time() - start_time < 25:
-        line = tunnel_proc.stdout.readline()
-        if not line:
-            continue
-        match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", line)
-        if match:
-            public_url = match.group(0)
-            break
-
-    # Keep tunnel output drained in background so the pipe buffer never blocks
-    import threading
-    def _keep_tunnel_alive(proc):
-        try:
-            while proc.poll() is None:
-                line = proc.stdout.readline()
-                if not line:
+    while time.time() - start_time < 30:
+        if log_file.exists():
+            try:
+                content = log_file.read_text(errors="ignore")
+                match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", content)
+                if match:
+                    public_url = match.group(0)
                     break
-        except Exception:
-            pass
-
-    threading.Thread(target=_keep_tunnel_alive, args=(tunnel_proc,), daemon=True).start()
+            except Exception:
+                pass
+        time.sleep(0.5)
 
     if public_url:
         print("\n" + "#" * 72, flush=True)
