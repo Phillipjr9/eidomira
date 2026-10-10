@@ -173,6 +173,8 @@ def main():
     os.environ["STUDIO_MODEL_PATH"] = str(model_path)
     os.environ["PYTHONUNBUFFERED"] = "1"
 
+    # Switch working directory to repo root so all relative paths resolve
+    os.chdir(str(ROOT))
     if liveportrait_dir.exists() and str(liveportrait_dir) not in sys.path:
         sys.path.insert(0, str(liveportrait_dir))
     if str(ROOT) not in sys.path:
@@ -181,11 +183,12 @@ def main():
     import uvicorn
     import traceback
     try:
-        uvicorn.run("app.main:app", host="0.0.0.0", port=8000, log_level="info")
+        from app.main import app as fastapi_app
+        uvicorn.run(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
     except Exception as exc:
         print(f"\n[Server Error]: {exc}", flush=True)
         traceback.print_exc()
-        time.sleep(10)
+        time.sleep(30)
     finally:
         tunnel_proc.terminate()
 
