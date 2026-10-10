@@ -673,19 +673,54 @@ async function verifyPaymentReturn(){
 }
 health();
 
-$('source').onchange=e=>{const f=e.target.files[0];if(f){$('sourcePreview').src=URL.createObjectURL(f);$('uploadCard').classList.add('hasImage')}};
+let selectedPresetBlob=null;
+document.querySelectorAll('.presetBtn').forEach(btn=>{
+  btn.onclick=async()=>{
+    try{
+      const src=btn.dataset.src;
+      status('Loading specimen '+btn.textContent.trim()+'…');
+      const res=await fetch(src);
+      selectedPresetBlob=await res.blob();
+      $('sourcePreview').src=src;
+      $('uploadCard').classList.add('hasImage');
+      $('consent').checked=true;
+      status('Selected '+btn.textContent.trim()+'. Click Enroll identity to activate.');
+    }catch(e){
+      status('Failed to load specimen: '+e.message,true);
+    }
+  };
+});
+
+$('source').onchange=e=>{
+  const f=e.target.files[0];
+  if(f){
+    selectedPresetBlob=null;
+    $('sourcePreview').src=URL.createObjectURL(f);
+    $('uploadCard').classList.add('hasImage');
+  }
+};
+
 $('enrollBtn').onclick=async()=>{
-  const f=$('source').files[0];
-  if(!f)return status('Choose a reference portrait.',true);
+  let f=$('source').files[0]||selectedPresetBlob;
+  if(!f)return status('Choose a reference portrait or select a preset.',true);
   if(!$('consent').checked)return status('Confirm self-only consent first.',true);
-  const d=new FormData();d.append('image',f);d.append('consent','true');d.append('quality',readPrefs().quality);
-  status('Analyzing identity…');$('enrollBtn').disabled=true;
-  try{const r=await apiFetch('/api/sessions',{method:'POST',body:d}),j=await r.json();
+  const d=new FormData();
+  d.append('image',f,f.name||'identity.jpg');
+  d.append('consent','true');
+  d.append('quality',readPrefs().quality);
+  status('Analyzing identity with neural network…');$('enrollBtn').disabled=true;
+  try{
+    const r=await apiFetch('/api/sessions',{method:'POST',body:d}),j=await r.json();
     if(!r.ok)throw Error(j.error||'Enrollment failed');
-    session=j.session_id;status('Identity enrolled. Start your camera.');
+    session=j.session_id;status('Identity enrolled! Face transformation ready.');
     if(j.expires_in)$('privacyTtl').textContent='Ends '+Math.round(j.expires_in/60)+' minutes after enrolling';
     $('p1').classList.add('active');$('p2').classList.add('active');
     if(media)$('goBtn').disabled=false;
+    if(running){
+      status('Switching to enrolled identity…');
+      stopTransform(false);
+      setTimeout(startTransform,400);
+    }
   }catch(e){status(e.message,true)}finally{$('enrollBtn').disabled=false}
 };
 function status(t,error=false){$('status').textContent=t;$('status').style.color=error?'#fda4af':'#86efac'}

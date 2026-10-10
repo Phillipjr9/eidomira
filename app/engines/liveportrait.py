@@ -53,7 +53,7 @@ class LivePortraitEngine(FaceSwapEngine):
         self.repo_dir = Path(repo_dir) if repo_dir else find_liveportrait_dir()
 
         if self.repo_dir and str(self.repo_dir) not in sys.path:
-            sys.path.insert(0, str(self.repo_dir))
+            sys.path.append(str(self.repo_dir))
 
         self.wrapper = None
         self.cropper = None
@@ -66,22 +66,44 @@ class LivePortraitEngine(FaceSwapEngine):
     def _init_models(self, weights_dir: Optional[str | Path] = None):
         try:
             import torch
+            import onnxruntime
             from src.config.argument_config import ArgumentConfig
             from src.config.inference_config import InferenceConfig
             from src.config.crop_config import CropConfig
             from src.live_portrait_wrapper import LivePortraitWrapper
             from src.utils.cropper import Cropper
 
-            # Prevent InsightFace from attempting to download missing models from Google Drive
+            avail_providers = onnxruntime.get_available_providers()
+
+            # Prevent InsightFace / Cropper from failing if CUDAExecutionProvider is missing from ONNX
             try:
                 from src.utils.face_analysis_diy import FaceAnalysisDIY
                 orig_diy_init = FaceAnalysisDIY.__init__
 
                 def _safe_diy_init(self, *args, **kwargs):
                     kwargs["allowed_modules"] = ["detection", "landmark_2d_106"]
+                    providers = kwargs.get("providers", [])
+                    valid = [p for p in providers if p in avail_providers]
+                    if "CPUExecutionProvider" not in valid:
+                        valid.append("CPUExecutionProvider")
+                    kwargs["providers"] = valid
                     orig_diy_init(self, *args, **kwargs)
 
                 FaceAnalysisDIY.__init__ = _safe_diy_init
+            except Exception:
+                pass
+
+            # Prevent LandmarkRunner from crashing if CUDAExecutionProvider is not in ONNX Runtime
+            try:
+                from src.utils.human_landmark_runner import LandmarkRunner
+                orig_lr_init = LandmarkRunner.__init__
+
+                def _safe_lr_init(self, *args, **kwargs):
+                    if "CUDAExecutionProvider" not in avail_providers:
+                        kwargs["onnx_provider"] = "cpu"
+                    orig_lr_init(self, *args, **kwargs)
+
+                LandmarkRunner.__init__ = _safe_lr_init
             except Exception:
                 pass
 
@@ -110,8 +132,11 @@ class LivePortraitEngine(FaceSwapEngine):
             self.wrapper = LivePortraitWrapper(inference_cfg=self.inference_cfg)
             self.cropper = Cropper(crop_cfg=self.crop_cfg)
             self._initialized = True
+            print("✅ LivePortrait models loaded onto GPU successfully!", flush=True)
         except Exception as exc:
-            # Engine can be instantiated in test mode without failing at import time
+            import traceback
+            print(f"❌ [LivePortrait Init Error]: {exc}", flush=True)
+            traceback.print_exc()
             self._init_error = str(exc)
 
     def enroll(self, rgb: np.ndarray) -> Enrollment:
