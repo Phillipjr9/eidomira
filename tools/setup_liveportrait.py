@@ -35,12 +35,12 @@ def main():
         print(f"LivePortrait repository already present at {TARGET_DIR}")
 
     # 2. Install required packages
-    print("\nInstalling LivePortrait and Studio dependencies…")
+    print("\nInstalling LivePortrait and Studio dependencies…", flush=True)
     subprocess.run([
         sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
         "pyyaml", "scipy", "imageio", "imageio-ffmpeg", "albumentations", "tyro",
         "fastapi", "uvicorn", "pydantic-settings", "python-multipart", "PyJWT", "argon2-cffi",
-        "aiortc", "av",
+        "aiortc", "av", "onnxruntime",
     ], check=True)
 
     # 3. Download pretrained weights from Hugging Face using official Python SDK

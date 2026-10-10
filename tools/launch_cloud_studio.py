@@ -82,12 +82,13 @@ def main():
         import av
         import pydantic_settings
         import argon2
+        import onnxruntime
         print("Studio dependencies verified.", flush=True)
     except ImportError:
-        print("Installing studio dependencies (pydantic-settings, argon2, aiortc, av)…", flush=True)
+        print("Installing studio dependencies (onnxruntime, pydantic-settings, argon2, aiortc, av)…", flush=True)
         subprocess.run([
             sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
-            "pydantic-settings", "argon2-cffi", "aiortc", "av", "python-multipart", "PyJWT",
+            "onnxruntime", "pydantic-settings", "argon2-cffi", "aiortc", "av", "python-multipart", "PyJWT",
         ], check=True)
         print("Studio dependencies installed.", flush=True)
 
@@ -98,8 +99,13 @@ def main():
         from tools.setup_liveportrait import main as setup_lp
         setup_lp()
 
+    # Ensure ROOT is first in sys.path so 'app' always refers to eidomira/app, not LivePortrait/app.py
+    if str(ROOT) in sys.path:
+        sys.path.remove(str(ROOT))
+    sys.path.insert(0, str(ROOT))
+
     if liveportrait_dir.exists() and str(liveportrait_dir) not in sys.path:
-        sys.path.insert(0, str(liveportrait_dir))
+        sys.path.append(str(liveportrait_dir))
 
     print("\nTarget Neural Backend: LIVEPORTRAIT", flush=True)
 
@@ -162,6 +168,9 @@ def main():
     import uvicorn
     import traceback
     try:
+        if str(ROOT) in sys.path:
+            sys.path.remove(str(ROOT))
+        sys.path.insert(0, str(ROOT))
         from app.main import app as fastapi_app
         uvicorn.run(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
     except Exception as exc:
