@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/launch_kling_control.py — Official Kling AI LivePortrait Reference Motion Studio.
 
-Launches the official Kling AI LivePortrait WebUI on Cloud GPU (Tesla T4) with
+Launches the official Kling AI LivePortrait WebUI on Cloud GPU (Tesla T4) or CPU with
 instant Cloudflare HTTPS tunnel.
 
 Features:
@@ -76,6 +76,14 @@ def is_port_open(port: int = 7860) -> bool:
         return False
 
 
+def check_cuda_available() -> bool:
+    try:
+        import torch
+        return bool(hasattr(torch, "cuda") and torch.cuda.is_available() and getattr(torch.version, "cuda", None))
+    except Exception:
+        return False
+
+
 def main():
     print("=" * 72)
     print("  LAUNCHING KLING AI LIVEPORTRAIT (REFERENCE MOTION CONTROL)")
@@ -90,7 +98,7 @@ def main():
     else:
         print(f"Kling AI LivePortrait already present at {LP_DIR}", flush=True)
 
-    # 2. Check complete dependencies (including rich, pykalman, tyro)
+    # 2. Check complete dependencies
     print("\nChecking LivePortrait dependencies…", flush=True)
     pkgs = [
         "gradio", "pyyaml", "scipy", "imageio", "imageio-ffmpeg",
@@ -140,7 +148,37 @@ def main():
     else:
         print("\nPretrained model weights already present.", flush=True)
 
-    # 4. Open Cloudflare HTTPS tunnel for port 7860
+    # 4. Patch device fallback for seamless CPU / GPU execution
+    has_cuda = check_cuda_available()
+    print(f"\nHardware acceleration: {'GPU (CUDA)' if has_cuda else 'CPU (Safe fallback)'}", flush=True)
+    if not has_cuda:
+        print("💡 Tip: To run at full 30 FPS GPU speed on Kaggle, toggle 'Accelerator' -> 'GPU T4 x2' in the right-hand panel.", flush=True)
+
+    wrapper_file = LP_DIR / "src" / "live_portrait_wrapper.py"
+    if wrapper_file.exists():
+        try:
+            w = wrapper_file.read_text()
+            old_cond = "if inference_cfg.flag_force_cpu:"
+            new_cond = "if inference_cfg.flag_force_cpu or not (hasattr(torch, 'cuda') and torch.cuda.is_available() and getattr(torch.version, 'cuda', None)):\n            inference_cfg.flag_use_half_precision = False\n            inference_cfg.flag_force_cpu = True"
+            if old_cond in w and "torch.cuda.is_available()" not in w:
+                w = w.replace(old_cond, new_cond)
+                wrapper_file.write_text(w)
+        except Exception as exc:
+            print(f"Notice on wrapper patch: {exc}", flush=True)
+
+    cropper_file = LP_DIR / "src" / "utils" / "cropper.py"
+    if cropper_file.exists():
+        try:
+            c = cropper_file.read_text()
+            old_crop = "if flag_force_cpu:"
+            new_crop = "if flag_force_cpu or not (hasattr(torch, 'cuda') and torch.cuda.is_available() and getattr(torch.version, 'cuda', None)):"
+            if old_crop in c and "torch.cuda.is_available()" not in c:
+                c = c.replace(old_crop, new_crop)
+                cropper_file.write_text(c)
+        except Exception as exc:
+            print(f"Notice on cropper patch: {exc}", flush=True)
+
+    # 5. Open Cloudflare HTTPS tunnel for port 7860
     cf_bin = download_cloudflared()
     log_file = Path("/tmp/cloudflared_kling.log")
     if log_file.exists():
@@ -172,18 +210,21 @@ def main():
                 pass
         time.sleep(0.5)
 
-    # 5. Start Kling AI LivePortrait in background and wait for port 7860
+    # 6. Start Kling AI LivePortrait and wait for port 7860
     os.chdir(str(LP_DIR))
-    print("\nLoading Kling AI neural weights into GPU memory…", flush=True)
+    print("\nLoading Kling AI neural weights into memory…", flush=True)
+    app_args = [sys.executable, "-u", "app.py", "--server_port", "7860", "--server_name", "0.0.0.0"]
+    if not has_cuda:
+        app_args.extend(["--flag_force_cpu", "--no-flag_use_half_precision"])
+
     proc = subprocess.Popen(
-        [sys.executable, "-u", "app.py", "--server_port", "7860", "--server_name", "0.0.0.0"],
+        app_args,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
     )
 
-    # Background thread to stream server logs
     def stream_logs():
         for line in iter(proc.stdout.readline, ""):
             print(line, end="", flush=True)
@@ -191,7 +232,6 @@ def main():
     log_thread = threading.Thread(target=stream_logs, daemon=True)
     log_thread.start()
 
-    # Wait until port 7860 is listening before announcing ready
     print("Waiting for server to bind to port 7860...", flush=True)
     server_ready = False
     start_wait = time.time()
