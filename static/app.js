@@ -807,7 +807,7 @@ async function waitForIce(connection){
   if(connection.iceGatheringState==='complete')return;
   await new Promise(resolve=>{const check=()=>{if(connection.iceGatheringState==='complete'){connection.removeEventListener('icegatheringstatechange',check);resolve()}};connection.addEventListener('icegatheringstatechange',check);setTimeout(resolve,4000)});
 }
-let liveWs=null,wsFrameTimer=null,wsCapCanvas=null,wsOutCanvas=null;
+let liveWs=null,wsFrameTimer=null,wsCapCanvas=null;
 
 function startWebSocketTransform(){
   if(pc){try{pc.close()}catch(_){}pc=null}
@@ -815,31 +815,46 @@ function startWebSocketTransform(){
   const protocol=location.protocol==='https:'?'wss:':'ws:';
   const url=`${protocol}//${location.host}/api/live/${session}`;
   if(!wsCapCanvas)wsCapCanvas=document.createElement('canvas');
-  if(!wsOutCanvas)wsOutCanvas=document.createElement('canvas');
-  const capCtx=wsCapCanvas.getContext('2d'),outCtx=wsOutCanvas.getContext('2d');
+  const capCtx=wsCapCanvas.getContext('2d');
+  const displayCanvas=$('outputCanvas');
+  const displayCtx=displayCanvas.getContext('2d');
+
   try{liveWs=new WebSocket(url);liveWs.binaryType='arraybuffer'}catch(err){status('Stream error: '+err.message,true);stopTransform();return}
   let inFlight=false;
+  let lastSendTime=0;
+
   liveWs.onopen=()=>{
     running=true;$('goBtn').disabled=false;$('goBtn').innerHTML='<span>■</span> Stop transformation';
     $('outputBadge').textContent='LIVE';$('outputBadge').className='badge live';$('p3').classList.add('active');
-    status('Live neural stream connected.');
-    if(wsOutCanvas.captureStream){
-      const stream=wsOutCanvas.captureStream(30);
-      $('output').srcObject=stream;$('output').style.display='block';$('outputEmpty').style.display='none';
-      $('recordBtn').disabled=false;$('cleanBtn').disabled=false;$('output').play().catch(()=>{});
-    }
+    status('Live neural video stream connected.');
+
+    // Switch to direct canvas rendering so Safari/Chrome stream continuously
+    $('output').style.display='none';
+    displayCanvas.style.display='block';
+    $('outputEmpty').style.display='none';
+    $('recordBtn').disabled=false;
+    $('cleanBtn').disabled=false;
+
     wsFrameTimer=setInterval(()=>{
-      if(!running||inFlight||!liveWs||liveWs.readyState!==WebSocket.OPEN)return;
+      if(!running||!liveWs||liveWs.readyState!==WebSocket.OPEN)return;
+      // Recover from dropped packets or delayed frames
+      if(inFlight&&(Date.now()-lastSendTime>1200)){
+        inFlight=false;
+      }
+      if(inFlight)return;
+
       const vid=$('video');if(!vid||vid.videoWidth===0)return;
-      wsCapCanvas.width=vid.videoWidth||640;wsCapCanvas.height=vid.videoHeight||480;
+      wsCapCanvas.width=Math.min(vid.videoWidth||640,640);
+      wsCapCanvas.height=Math.min(vid.videoHeight||480,480);
       capCtx.drawImage(vid,0,0,wsCapCanvas.width,wsCapCanvas.height);
       inFlight=true;
+      lastSendTime=Date.now();
       wsCapCanvas.toBlob(blob=>{
         if(blob&&liveWs&&liveWs.readyState===WebSocket.OPEN){
           blob.arrayBuffer().then(buf=>liveWs.send(buf)).catch(()=>{inFlight=false});
         }else{inFlight=false}
       },'image/jpeg',0.82);
-    },45);
+    },33); // 30 FPS target
   };
   liveWs.onmessage=async(e)=>{
     if(typeof e.data==='string'){
@@ -850,7 +865,7 @@ function startWebSocketTransform(){
           $('frameCost').textContent=(msg.server_ms!=null?msg.server_ms+' ms':'— ms');
           $('outputBadge').textContent=msg.face_found?'LIVE':'NO FACE';
           $('inferenceSize').textContent=(wsCapCanvas?wsCapCanvas.width:640)+' px';
-          if(msg.server_ms)$('fps').textContent=Math.round(1000/Math.max(msg.server_ms,35))+' FPS';
+          if(msg.server_ms)$('fps').textContent=Math.round(1000/Math.max(msg.server_ms,33))+' FPS';
         }else if(msg.type==='verification'){
           $('verified').textContent=msg.verified?'VERIFIED':'MATCHING';
         }else if(msg.type==='fatal'){
@@ -862,8 +877,11 @@ function startWebSocketTransform(){
       const blob=new Blob([e.data],{type:'image/jpeg'});
       const img=new Image();
       img.onload=()=>{
-        wsOutCanvas.width=img.naturalWidth||640;wsOutCanvas.height=img.naturalHeight||480;
-        outCtx.drawImage(img,0,0,wsOutCanvas.width,wsOutCanvas.height);
+        if(displayCanvas.width!==img.naturalWidth||displayCanvas.height!==img.naturalHeight){
+          displayCanvas.width=img.naturalWidth||640;
+          displayCanvas.height=img.naturalHeight||480;
+        }
+        displayCtx.drawImage(img,0,0,displayCanvas.width,displayCanvas.height);
         URL.revokeObjectURL(img.src);
       };
       img.src=URL.createObjectURL(blob);
@@ -956,7 +974,7 @@ function stopTransform(reset=true){
   if(liveWs){try{liveWs.close()}catch(_){}liveWs=null}
   if(pc){pc.onconnectionstatechange=null;pc.getSenders().forEach(s=>{if(s.track)s.replaceTrack(null).catch(()=>{})});pc.close();pc=null}
   wakeLock?.release().catch(()=>{});wakeLock=null;
-  $('output').srcObject=null;$('output').style.display='none';$('outputEmpty').style.display='grid';$('livenessPrompt').style.display='none';
+  $('output').srcObject=null;$('output').style.display='none';$('outputCanvas').style.display='none';$('outputEmpty').style.display='grid';$('livenessPrompt').style.display='none';
   $('goBtn').innerHTML='<span>✦</span> Start transformation';$('outputBadge').textContent='WAITING';$('outputBadge').className='badge';$('recordBtn').disabled=true;$('cleanBtn').disabled=true;exitCleanMode();
   if(reset)reconnects=0;
 }
@@ -967,7 +985,8 @@ function preferredMime(){
 }
 $('recordBtn').onclick=()=>recorder&&recorder.state==='recording'?stopRecording():startRecording();
 async function startRecording(){
-  const outputStream=$('output').srcObject;if(!outputStream)return status('Start transformation before recording.',true);
+  const outputStream=$('output').srcObject || ($('outputCanvas').style.display!=='none'?$('outputCanvas').captureStream(30):null);
+  if(!outputStream)return status('Start transformation before recording.',true);
   recordedChunks=[];recordedBlob=null;if(recordUrl){URL.revokeObjectURL(recordUrl);recordUrl=null}$('recordDownload').hidden=true;$('shareBtn').hidden=true;
   try{const tracks=[...outputStream.getVideoTracks()];if($('recordMic').checked){micStream=await navigator.mediaDevices.getUserMedia({audio:recordedAudioConstraints(),video:false});tracks.push(...micStream.getAudioTracks())}const stream=new MediaStream(tracks);const mime=preferredMime();const options={videoBitsPerSecond:6_000_000,audioBitsPerSecond:128_000};if(mime)options.mimeType=mime;recorder=new MediaRecorder(stream,options);
     recorder.ondataavailable=e=>{if(e.data.size)recordedChunks.push(e.data)};
