@@ -27,6 +27,11 @@ if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
     except Exception:
         pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:
+        pass
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -58,9 +63,19 @@ def download_cloudflared():
     return None
 
 
+def is_port_open(port: int = 8000) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            return s.connect_ex(("127.0.0.1", port)) == 0
+    except Exception:
+        return False
+
+
 def main():
     print("=" * 72, flush=True)
     print("  EIDOMIRA CLOUD GPU LIVE WEBRTC STUDIO", flush=True)
+    print(f"  Python: {sys.version.split()[0]} | Working dir: {os.getcwd()}")
     print("=" * 72, flush=True)
 
     # 0. Ensure working directory is repo root and environment is configured
@@ -77,20 +92,27 @@ def main():
     os.environ["PYTHONUNBUFFERED"] = "1"
 
     # 1. Verify WebRTC & Studio dependencies
-    try:
-        import aiortc
-        import av
-        import pydantic_settings
-        import argon2
-        import onnxruntime
-        print("Studio dependencies verified.", flush=True)
-    except ImportError:
-        print("Installing studio dependencies (onnxruntime, pydantic-settings, argon2, aiortc, av)…", flush=True)
+    pkgs = [
+        "aiortc", "av", "pydantic_settings", "argon2", "onnxruntime",
+        "rich", "pykalman", "albumentations", "tyro"
+    ]
+    missing = []
+    for pkg in pkgs:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+
+    if missing:
+        print(f"Installing missing studio dependencies: {' '.join(missing)}…", flush=True)
         subprocess.run([
             sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
-            "onnxruntime", "pydantic-settings", "argon2-cffi", "aiortc", "av", "python-multipart", "PyJWT",
+            "onnxruntime", "pydantic-settings", "argon2-cffi", "aiortc", "av",
+            "python-multipart", "PyJWT", "rich", "pykalman", "albumentations", "tyro",
         ], check=True)
         print("Studio dependencies installed.", flush=True)
+    else:
+        print("Studio dependencies verified.", flush=True)
 
     # 2. Ensure LivePortrait neural models are present
     liveportrait_dir = Path("/kaggle/working/LivePortrait")
@@ -107,7 +129,7 @@ def main():
     if liveportrait_dir.exists() and str(liveportrait_dir) not in sys.path:
         sys.path.append(str(liveportrait_dir))
 
-    print("\nTarget Neural Backend: LIVEPORTRAIT", flush=True)
+    print("\nTarget Neural Backend: LIVEPORTRAIT (Kling AI Reference Motion)", flush=True)
 
     # 3. Setup Cloudflare Tunnel binary
     cloudflared_path = download_cloudflared()
@@ -121,9 +143,9 @@ def main():
         print("Error: Cloudflare tunnel binary not found.", file=sys.stderr)
         return 1
 
-    # 4. Open Cloudflare Tunnel and acquire live public URL
-    print("Opening secure HTTPS tunnel for camera access…", flush=True)
-    log_file = Path("/tmp/cloudflared.log")
+    # 4. Open Cloudflare Tunnel
+    print("Opening secure HTTPS tunnel for Eidomira Studio…", flush=True)
+    log_file = Path("/tmp/cloudflared_studio.log")
     if log_file.exists():
         try:
             log_file.unlink()
@@ -160,9 +182,9 @@ def main():
         print(f"     {public_url}/app\n", flush=True)
         print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026", flush=True)
         print("#" * 72, flush=True)
-        print("\nStarting LivePortrait neural server on port 8000…\n", flush=True)
+        print("\nStarting Eidomira Uvicorn server on port 8000…\n", flush=True)
     else:
-        print("Starting LivePortrait neural server on port 8000…", flush=True)
+        print("Starting Eidomira Uvicorn server on port 8000…", flush=True)
 
     # 5. Launch Uvicorn in foreground with loaded app
     import uvicorn
@@ -177,7 +199,7 @@ def main():
         warmup_engine = create_engine()
         if getattr(warmup_engine, "_initialized", False):
             import torch
-            if torch.cuda.is_available():
+            if hasattr(torch, "cuda") and torch.cuda.is_available() and getattr(torch.version, "cuda", None):
                 print("🚀 LIVEPORTRAIT NEURAL ENGINE READY ON GPU (CUDA)!\n", flush=True)
             else:
                 print("⚡ LIVEPORTRAIT NEURAL ENGINE READY ON CPU!\n", flush=True)
