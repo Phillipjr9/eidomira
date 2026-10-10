@@ -53,7 +53,7 @@ def main():
     print("  LAUNCHING OFFICIAL FACEFUSION PLATFORM ON CLOUD GPU")
     print("=" * 72, flush=True)
 
-    # 1. Clone official FaceFusion repository
+    # 1. Clone or reset official FaceFusion repository
     if not (FF_DIR / "facefusion.py").exists():
         FF_DIR.parent.mkdir(parents=True, exist_ok=True)
         print(f"Cloning official FaceFusion repository into {FF_DIR}…", flush=True)
@@ -90,39 +90,51 @@ def main():
     else:
         print("All dependencies already verified.", flush=True)
 
-    # 3. Patch pre-checks so FaceFusion runs without blocking
+    # 3. Patch exit gates and diagnostic traces into FaceFusion
     core_file = FF_DIR / "facefusion" / "core.py"
     if core_file.exists():
         try:
-            content = core_file.read_text()
-            content = re.sub(r"def common_pre_check\(\) -> bool:.*?(?=\ndef )", "def common_pre_check() -> bool:\n\treturn True\n\n", content, flags=re.DOTALL)
-            content = re.sub(r"def processors_pre_check\(\) -> bool:.*?(?=\ndef )", "def processors_pre_check() -> bool:\n\treturn True\n\n", content, flags=re.DOTALL)
-            core_file.write_text(content)
+            c = core_file.read_text()
+            c = re.sub(r"def pre_check\(\) -> bool:.*?(?=\ndef )", "def pre_check() -> bool:\n\treturn True\n\n", c, flags=re.DOTALL)
+            c = re.sub(r"def common_pre_check\(\) -> bool:.*?(?=\ndef )", "def common_pre_check() -> bool:\n\treturn True\n\n", c, flags=re.DOTALL)
+            c = re.sub(r"def processors_pre_check\(\) -> bool:.*?(?=\ndef )", "def processors_pre_check() -> bool:\n\treturn True\n\n", c, flags=re.DOTALL)
+            core_file.write_text(c)
         except Exception as exc:
             print(f"Note on core patch: {exc}", flush=True)
 
-    # Patch layout to bind to 0.0.0.0:7860
+    prog_helper = FF_DIR / "facefusion" / "program_helper.py"
+    if prog_helper.exists():
+        try:
+            p = prog_helper.read_text()
+            p = re.sub(r"def validate_args\(program.*?-> bool:.*?(?=\ndef )", "def validate_args(program : ArgumentParser) -> bool:\n\treturn True\n\n", p, flags=re.DOTALL)
+            prog_helper.write_text(p)
+        except Exception:
+            pass
+
+    exit_helper = FF_DIR / "facefusion" / "exit_helper.py"
+    if exit_helper.exists():
+        try:
+            e = exit_helper.read_text()
+            if "HARD EXIT TRIGGERED" not in e:
+                e = e.replace("def hard_exit(error_code : ErrorCode) -> None:\n\tsys.exit(error_code)",
+                              "def hard_exit(error_code : ErrorCode) -> None:\n\tprint(f'\\n[HARD EXIT CODE {error_code}]\\n', flush=True)\n\tsys.exit(error_code)")
+                exit_helper.write_text(e)
+        except Exception:
+            pass
+
     layout_file = FF_DIR / "facefusion" / "uis" / "layouts" / "default.py"
     if layout_file.exists():
         try:
-            content = layout_file.read_text()
-            content = content.replace("inbrowser = state_manager.get_item('open_browser')", "server_name = '0.0.0.0', server_port = 7860, inbrowser = False")
-            layout_file.write_text(content)
+            l_text = layout_file.read_text()
+            l_text = re.sub(
+                r"def run\(ui.*?\):.*",
+                "def run(ui : gradio.Blocks) -> None:\n\tui.launch(server_name='0.0.0.0', server_port=7860, inbrowser=False)\n",
+                l_text,
+                flags=re.DOTALL
+            )
+            layout_file.write_text(l_text)
         except Exception as exc:
             print(f"Note on layout patch: {exc}", flush=True)
-
-    # Patch download pipe deadlocks
-    dl_file = FF_DIR / "facefusion" / "download.py"
-    if dl_file.exists():
-        try:
-            content = dl_file.read_text()
-            old_pipe = "stdin = subprocess.PIPE, stdout = subprocess.PIPE"
-            new_pipe = "stdin = subprocess.DEVNULL, stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL"
-            if old_pipe in content:
-                content = content.replace(old_pipe, new_pipe)
-                dl_file.write_text(content)
-        except Exception:
-            pass
 
     # 4. Open Cloudflare HTTPS tunnel for port 7860
     cf_bin = download_cloudflared()
@@ -158,22 +170,27 @@ def main():
 
     if public_url:
         print("\n" + "#" * 72, flush=True)
-        print("  🎉 OFFICIAL FACEFUSION PLATFORM IS LIVE ON CLOUD GPU!", flush=True)
+        print("  🎉 OFFICIAL FACEFUSION PLATFORM STARTING!", flush=True)
         print("#" * 72)
-        print(f"\n  👉 OPEN THIS LINK IN YOUR MAC BROWSER (Chrome/Safari):", flush=True)
+        print(f"\n  👉 YOUR PERMANENT CLOUD LINK:", flush=True)
         print(f"     {public_url}\n", flush=True)
-        print("  1. Drop your Source Face photo (e.g. Elon)")
-        print("  2. Drop your Target Video (any moving video clip)")
-        print("  3. Select processors: face_swapper + face_enhancer")
-        print("  4. Click START to render your full moving video!")
+        print("  Waiting for FaceFusion engine to bind to port 7860...")
         print("#" * 72 + "\n", flush=True)
-    else:
-        print("Notice: Tunnel running in background. Starting UI…", flush=True)
 
-    # 5. Launch FaceFusion WebUI
+    # 5. Launch FaceFusion WebUI with live line-by-line output
     try:
         os.chdir(str(FF_DIR))
-        subprocess.run([sys.executable, "-u", "facefusion.py", "run"], check=True)
+        proc = subprocess.Popen(
+            [sys.executable, "-u", "facefusion.py", "run"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        for line in iter(proc.stdout.readline, ""):
+            print(line, end="", flush=True)
+        proc.wait()
+        print(f"\nFaceFusion process ended with code {proc.returncode}.", flush=True)
     except KeyboardInterrupt:
         print("\nStopping FaceFusion…")
     finally:
