@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     max_frame_width: int = 960
     jpeg_quality: int = 82
     verification_threshold: float = 0.34
-    require_self_verification: bool = True
+    require_self_verification: bool = False
     allowed_origins: str = "http://127.0.0.1:8000,http://localhost:8000"
     max_active_peers: int = 4
     turn_urls: str = ""
