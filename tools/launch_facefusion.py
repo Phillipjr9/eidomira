@@ -101,11 +101,13 @@ def main():
         log_file.unlink()
 
     print("\nOpening secure HTTPS tunnel for FaceFusion UI…", flush=True)
-    tunnel_proc = subprocess.Popen(
-        [str(cf_path), "tunnel", "--url", "http://127.0.0.1:7860", "--logfile", str(log_file), "--no-autoupdate"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    tunnel_cmd = [
+        str(cf_path), "tunnel",
+        "--no-autoupdate",
+        "--url", "http://127.0.0.1:7860",
+        "--logfile", str(log_file),
+    ]
+    tunnel_proc = subprocess.Popen(tunnel_cmd)
 
     public_url = None
     start_time = time.time()
@@ -122,11 +124,11 @@ def main():
         time.sleep(0.5)
 
     if public_url:
-        print("\n" + "#" * 72)
-        print("  🎉 FACEFUSION PLATFORM IS LIVE ON CLOUD GPU!")
+        print("\n" + "#" * 72, flush=True)
+        print("  🎉 FACEFUSION PLATFORM IS LIVE ON CLOUD GPU!", flush=True)
         print("#" * 72)
-        print(f"\n  👉 OPEN THIS LINK IN YOUR MAC BROWSER:")
-        print(f"     {public_url}\n")
+        print(f"\n  👉 OPEN THIS LINK IN YOUR MAC BROWSER:", flush=True)
+        print(f"     {public_url}\n", flush=True)
         print("  1. Drop your Source Face image (e.g. Elon)")
         print("  2. Drop your Target Video (any real moving video clip)")
         print("  3. Select processors (Face Swapper + Face Enhancer)")
@@ -138,6 +140,7 @@ def main():
     # 4. Run FaceFusion WebUI
     try:
         os.chdir(str(FF_DIR))
+        print("Launching FaceFusion engine…", flush=True)
         subprocess.run([sys.executable, "facefusion.py", "run", "--execution-providers", "cuda", "cpu"], check=True)
     except KeyboardInterrupt:
         print("\nStopping FaceFusion…")
