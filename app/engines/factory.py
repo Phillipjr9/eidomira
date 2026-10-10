@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 from .diagnostic import DiagnosticEngine
 from .inswapper import InSwapperEngine
 try:
@@ -19,11 +20,16 @@ LIVEPORTRAIT_BACKEND = "liveportrait"
 
 
 def create_engine():
-    if settings.backend == LIVEPORTRAIT_BACKEND:
+    backend = os.environ.get("STUDIO_BACKEND", getattr(settings, "backend", "diagnostic"))
+    if backend == LIVEPORTRAIT_BACKEND:
         from .liveportrait import LivePortraitEngine
         return LivePortraitEngine()
-    if settings.backend == INSWAPPER_BACKEND:
-        if not settings.model_path.exists():
-            raise RuntimeError(f"Licensed model is missing: {settings.model_path}")
-        return InSwapperEngine(str(settings.model_path), settings.verification_threshold)
+    if backend == INSWAPPER_BACKEND:
+        try:
+            import insightface
+            if not settings.model_path.exists():
+                raise RuntimeError(f"Licensed model is missing: {settings.model_path}")
+            return InSwapperEngine(str(settings.model_path), settings.verification_threshold)
+        except Exception:
+            return DiagnosticEngine()
     return DiagnosticEngine()

@@ -63,7 +63,20 @@ def main():
     print("  EIDOMIRA CLOUD GPU LIVE WEBRTC STUDIO", flush=True)
     print("=" * 72, flush=True)
 
-    # 0. Verify WebRTC & Studio dependencies
+    # 0. Ensure working directory is repo root and environment is configured
+    os.chdir(str(ROOT))
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+
+    os.environ["STUDIO_BACKEND"] = "liveportrait"
+    os.environ["STUDIO_ALLOWED_ORIGINS"] = "*"
+    os.environ["STUDIO_DEMO_LOGIN"] = "true"
+    os.environ["STUDIO_DEMO_PASSWORD"] = "eidomira-demo-2026"
+    os.environ["STUDIO_REQUIRE_SELF_VERIFICATION"] = "false"
+    os.environ["STUDIO_RESTORATION_VISIBILITY"] = "0.6"
+    os.environ["PYTHONUNBUFFERED"] = "1"
+
+    # 1. Verify WebRTC & Studio dependencies
     try:
         import aiortc
         import av
@@ -78,35 +91,17 @@ def main():
         ], check=True)
         print("Studio dependencies installed.", flush=True)
 
-    # Determine neural backend
+    # 2. Ensure LivePortrait neural models are present
     liveportrait_dir = Path("/kaggle/working/LivePortrait")
-    selected_backend = os.environ.get("STUDIO_BACKEND")
-    if not selected_backend:
-        if (liveportrait_dir / "src" / "live_portrait_wrapper.py").exists() or (ROOT / "third_party" / "LivePortrait" / "src").exists():
-            selected_backend = "liveportrait"
-        else:
-            selected_backend = "inswapper"
+    if not (liveportrait_dir / "src" / "live_portrait_wrapper.py").exists() and not (ROOT / "third_party" / "LivePortrait" / "src").exists():
+        print("LivePortrait not found. Initializing setup…", flush=True)
+        from tools.setup_liveportrait import main as setup_lp
+        setup_lp()
 
-    print(f"\nTarget Neural Backend: {selected_backend.upper()}", flush=True)
+    if liveportrait_dir.exists() and str(liveportrait_dir) not in sys.path:
+        sys.path.insert(0, str(liveportrait_dir))
 
-    # 1. Preload CUDA only for legacy inswapper
-    if selected_backend == "inswapper":
-        try:
-            from tools.run_real_swap import preload_cuda
-            preload_cuda()
-        except Exception:
-            pass
-
-    # 2. Only download legacy inswapper models if inswapper backend is explicitly chosen
-    model_path = ROOT / "models" / "inswapper_128.onnx"
-    if selected_backend == "inswapper":
-        from tools.run_real_swap import download_file, MODEL_URL, RESTORER_URL
-        restorer_path = ROOT / "models" / "gfpgan_1.4.onnx"
-        try:
-            download_file(MODEL_URL, model_path, "InSwapper-128")
-            download_file(RESTORER_URL, restorer_path, "GFPGAN-1.4")
-        except Exception as exc:
-            print(f"Model notice: {exc}")
+    print("\nTarget Neural Backend: LIVEPORTRAIT", flush=True)
 
     # 3. Setup Cloudflare Tunnel binary
     cloudflared_path = download_cloudflared()
@@ -163,23 +158,7 @@ def main():
     else:
         print("Starting LivePortrait neural server on port 8000…", flush=True)
 
-    # 5. Configure environment and launch Uvicorn directly in foreground
-    os.environ["STUDIO_BACKEND"] = selected_backend
-    os.environ["STUDIO_ALLOWED_ORIGINS"] = "*"
-    os.environ["STUDIO_DEMO_LOGIN"] = "true"
-    os.environ["STUDIO_DEMO_PASSWORD"] = "eidomira-demo-2026"
-    os.environ["STUDIO_REQUIRE_SELF_VERIFICATION"] = "false"
-    os.environ["STUDIO_RESTORATION_VISIBILITY"] = "0.6"
-    os.environ["STUDIO_MODEL_PATH"] = str(model_path)
-    os.environ["PYTHONUNBUFFERED"] = "1"
-
-    # Switch working directory to repo root so all relative paths resolve
-    os.chdir(str(ROOT))
-    if liveportrait_dir.exists() and str(liveportrait_dir) not in sys.path:
-        sys.path.insert(0, str(liveportrait_dir))
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
-
+    # 5. Launch Uvicorn in foreground with loaded app
     import uvicorn
     import traceback
     try:
