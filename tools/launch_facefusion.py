@@ -62,12 +62,30 @@ def main():
         print(f"FaceFusion already present at {FF_DIR}", flush=True)
 
     # 2. Install FaceFusion requirements
-    print("\nInstalling FaceFusion dependencies for Cloud GPU…", flush=True)
-    subprocess.run([
-        sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
-        "gradio", "gradio-rangeslider", "opencv-python-headless", "onnx", "onnxruntime-gpu",
-        "tqdm", "scipy", "psutil", "imageio", "imageio-ffmpeg",
-    ], check=True)
+    print("\nChecking FaceFusion dependencies…", flush=True)
+    pkgs = ["gradio", "gradio_rangeslider", "cv2", "onnx", "onnxruntime", "tqdm", "scipy", "psutil"]
+    missing = []
+    for pkg in pkgs:
+        try:
+            __import__(pkg)
+        except ImportError:
+            if pkg == "cv2":
+                missing.append("opencv-python-headless")
+            elif pkg == "gradio_rangeslider":
+                missing.append("gradio-rangeslider")
+            elif pkg == "onnxruntime":
+                missing.append("onnxruntime-gpu")
+            else:
+                missing.append(pkg)
+
+    if missing:
+        print(f"Installing missing packages: {' '.join(missing)}…", flush=True)
+        subprocess.run([
+            sys.executable, "-m", "pip", "install",
+            *missing,
+        ], check=True)
+    else:
+        print("All dependencies already verified.", flush=True)
 
     # 3. Setup Cloudflare tunnel
     cf_path = download_cloudflared()
