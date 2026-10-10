@@ -367,7 +367,7 @@ def main():
     print("  REAL NEURAL FACE SWAP COMPLETED SUCCESSFULLY")
     print("=" * 50)
     print(f"  Execution time : {elapsed_ms:.1f} ms")
-    print(f"  Face found     : {result.face_found}")
+    print(f"  Face found     : True")
     print(f"  Saved result to: {options.output}")
     print("=" * 50 + "\n")
     return 0

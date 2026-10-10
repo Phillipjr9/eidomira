@@ -359,21 +359,6 @@ def main() -> int:
             print(f"  Rendered {idx + 1}/{total_frames} frames…", end="\r")
 
     writer.release()
-
-        # Scale predicted mouth back to original face resolution
-        pred_mouth_full = cv2.resize(pred_mouth, (x2 - x1, y2 - y1), interpolation=cv2.INTER_LANCZOS4)
-
-        # Seamlessly composite mouth into the frame
-        frame = face_bgr.copy()
-        blended_mouth = (pred_mouth_full.astype(np.float32) * blend_mask +
-                         mouth_crop.astype(np.float32) * (1.0 - blend_mask)).astype(np.uint8)
-        frame[y1:y2, x1:x2] = blended_mouth
-
-        writer.write(frame)
-        if (idx + 1) % 50 == 0 or idx == total_frames - 1:
-            print(f"  Rendered {idx + 1}/{total_frames} frames…", end="\r")
-
-    writer.release()
     render_time = time.perf_counter() - frame_start
     print(f"\n  Frame synthesis completed in {render_time:.2f}s ({total_frames / max(render_time, 0.001):.1f} FPS)")
 
