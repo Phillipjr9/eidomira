@@ -92,15 +92,16 @@ def main():
         except Exception:
             pass
 
-    # 5. Launch FaceFusion WebUI
+    # 5. Launch FaceFusion WebUI with unbuffered output & info logging
     print("\n" + "#" * 72)
     print("  🚀 STARTING OFFICIAL FACEFUSION ON TESLA T4 GPU...")
-    print("  Look for the public link below (https://xxxx.gradio.live)")
+    print("  Downloading official models & initializing UI (approx 30-45s)...")
+    print("  Please keep this running — the live link will appear below:")
     print("#" * 72 + "\n", flush=True)
 
     try:
         os.chdir(str(FF_DIR))
-        subprocess.run([sys.executable, "facefusion.py", "run"], check=True)
+        subprocess.run([sys.executable, "-u", "facefusion.py", "run", "--log-level", "info"], check=True)
     except KeyboardInterrupt:
         print("\nStopping FaceFusion…")
     finally:
