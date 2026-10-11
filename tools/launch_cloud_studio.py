@@ -75,6 +75,10 @@ def main():
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
 
+    # Free any leftover processes from previous runs to guarantee clean port 8000 and full GPU VRAM
+    subprocess.run(["pkill", "-f", "cloudflared"], check=False)
+    subprocess.run(["pkill", "-f", "LivePortrait/app.py"], check=False)
+
     os.environ["STUDIO_BACKEND"] = "liveportrait"
     os.environ["STUDIO_ALLOWED_ORIGINS"] = "*"
     os.environ["STUDIO_DEMO_LOGIN"] = "true"
@@ -200,6 +204,7 @@ def main():
                 match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", content)
                 if match:
                     public_url = match.group(0)
+                    print(f"[Tunnel Active]: {public_url}", flush=True)
                     break
             except Exception:
                 pass
