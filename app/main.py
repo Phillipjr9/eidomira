@@ -608,8 +608,16 @@ async def live(socket: WebSocket, sid: str):
                 if not session.verified:
                     continue
             started = time.perf_counter()
-            with session.frame_lock:
-                result = await asyncio.to_thread(engine.process, frame, session.identity, session.verified)
+            try:
+                with session.frame_lock:
+                    result = await asyncio.to_thread(engine.process, frame, session.identity, session.verified)
+            except Exception as proc_exc:
+                import traceback
+                print(f"❌ [Engine Process Error]: {proc_exc}", flush=True)
+                traceback.print_exc()
+                await socket.send_json({"type": "fatal", "message": f"Neural error: {proc_exc}"})
+                await socket.close()
+                return
             await socket.send_json({"type":"frame", "latency_ms":round(result.latency_ms,1),
                                     "face_found":result.face_found, "server_ms":round((time.perf_counter()-started)*1000,1)})
             await socket.send_bytes(encode(result.image))

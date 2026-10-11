@@ -875,6 +875,8 @@ function startWebSocketTransform(){
     // Switch to direct canvas rendering so Safari/Chrome stream continuously
     $('output').style.display='none';
     displayCanvas.style.display='block';
+    displayCanvas.width=wsCapCanvas?wsCapCanvas.width:384;
+    displayCanvas.height=wsCapCanvas?wsCapCanvas.height:384;
     $('outputEmpty').style.display='none';
     $('recordBtn').disabled=false;
     $('recenterBtn').disabled=false;
