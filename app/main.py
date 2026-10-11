@@ -514,6 +514,7 @@ def recalibrate_session(sid: str):
         if isinstance(session.identity, dict):
             session.identity["anchor_info"] = None
             session.identity["anchor_R"] = None
+            session.identity["anchor_x_d_0"] = None
     return {"ok": True}
 
 

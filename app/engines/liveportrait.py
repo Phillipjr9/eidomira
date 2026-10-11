@@ -288,6 +288,7 @@ class LivePortraitEngine(FaceSwapEngine):
                         for k, v in x_d_i_info.items()
                     }
                     identity["anchor_R"] = R_d_i.clone()
+                    identity["anchor_x_d_0"] = None
 
                 anchor = identity["anchor_info"]
                 anchor_R = identity["anchor_R"]
@@ -297,10 +298,7 @@ class LivePortraitEngine(FaceSwapEngine):
                 R_rel = R_d_i @ anchor_R.permute(0, 2, 1)
                 R_new = R_rel @ identity["R_s"]
 
-                # Expression retargeting with dampening & clamping to eliminate bulging eyes & grimacing
-                delta_exp = (x_d_i_info["exp"] - anchor["exp"]) * 0.85
-                delta_exp = torch.clamp(delta_exp, -1.2, 1.2)
-                delta_new = identity["x_s_info"]["exp"] + delta_exp
+                delta_new = identity["x_s_info"]["exp"] + (x_d_i_info["exp"] - anchor["exp"])
 
                 # Scale and 2D translation (zero out tz depth to prevent 3D projective distortion)
                 scale_new = identity["x_s_info"]["scale"] * (x_d_i_info["scale"] / anchor["scale"])
@@ -313,7 +311,19 @@ class LivePortraitEngine(FaceSwapEngine):
                     x_c_s = identity["x_s_info"]["kp"]
 
                 bs, num_kp = x_c_s.shape[:2]
-                x_d_new = scale_new * (x_c_s.view(bs, num_kp, 3) @ R_new + delta_new.view(bs, num_kp, 3)) + t_new
+                x_d_i_new = scale_new * (x_c_s.view(bs, num_kp, 3) @ R_new + delta_new.view(bs, num_kp, 3)) + t_new
+
+                # EXACT Kling AI LivePortrait relative motion anchoring (prevents eye bulging & jaw stretching)
+                if identity.get("anchor_x_d_0") is None:
+                    identity["anchor_x_d_0"] = x_d_i_new.clone()
+                    try:
+                        from src.utils.helper import calc_motion_multiplier
+                        identity["motion_multiplier"] = float(calc_motion_multiplier(identity["x_s"], x_d_i_new))
+                    except Exception:
+                        identity["motion_multiplier"] = 1.0
+
+                x_d_diff = (x_d_i_new - identity["anchor_x_d_0"]) * identity.get("motion_multiplier", 1.0)
+                x_d_new = x_d_diff + identity["x_s"]
 
                 # 5. LivePortrait Stitching module: anchors facial boundaries & prevents unnatural warping
                 if hasattr(self.wrapper, "stitching") and getattr(self.inference_cfg, "flag_stitching", True):
