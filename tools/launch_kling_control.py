@@ -131,6 +131,7 @@ def main():
     expected_pth = WEIGHTS_DIR / "liveportrait" / "base_models" / "spade_generator.pth"
     if not expected_pth.exists():
         print(f"\nDownloading Kling AI LivePortrait model weights into {WEIGHTS_DIR}…", flush=True)
+        print("Fetching neural checkpoints from Hugging Face (~1.5 GB). Please wait 1-2 minutes...", flush=True)
         WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
         try:
             from huggingface_hub import snapshot_download
@@ -206,13 +207,14 @@ def main():
 
     public_url = None
     start_time = time.time()
-    while time.time() - start_time < 20:
+    while time.time() - start_time < 25:
         if log_file.exists():
             try:
                 txt = log_file.read_text(errors="ignore")
                 match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", txt)
                 if match:
                     public_url = match.group(0)
+                    print(f"\n[Tunnel Active]: {public_url}", flush=True)
                     break
             except Exception:
                 pass
