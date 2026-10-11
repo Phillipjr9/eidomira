@@ -98,6 +98,14 @@ def main():
     else:
         print(f"Kling AI LivePortrait already present at {LP_DIR}", flush=True)
 
+    # Auto-detect NVIDIA GPU and ensure PyTorch with CUDA is active
+    if shutil.which("nvidia-smi") and not check_cuda_available():
+        print("Detected NVIDIA GPU hardware. Ensuring PyTorch with CUDA acceleration is active…", flush=True)
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
+            "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu124"
+        ], check=False)
+
     # 2. Check complete dependencies
     print("\nChecking LivePortrait dependencies…", flush=True)
     pkgs = [
@@ -213,7 +221,7 @@ def main():
     # 6. Start Kling AI LivePortrait and wait for port 7860
     os.chdir(str(LP_DIR))
     print("\nLoading Kling AI neural weights into memory…", flush=True)
-    app_args = [sys.executable, "-u", "app.py", "--server_port", "7860", "--server_name", "0.0.0.0"]
+    app_args = [sys.executable, "-u", "app.py", "--server_port", "7860", "--server_name", "0.0.0.0", "--share"]
     if not has_cuda:
         app_args.extend(["--flag_force_cpu", "--no-flag_use_half_precision"])
 
