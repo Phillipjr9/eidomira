@@ -3,7 +3,7 @@
 
 Runs the Eidomira Neural WebRTC Studio on a Cloud GPU (e.g. Kaggle Tesla T4),
 exposes it via an instant, secure Cloudflare Tunnel (HTTPS with full camera access),
-and prints the clickable live studio URL for your Mac browser.
+and prints the clickable live studio URL for your Mac browser once fully ready.
 
 Usage:
     python tools/launch_cloud_studio.py
@@ -17,6 +17,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -61,15 +62,6 @@ def download_cloudflared():
         except Exception:
             continue
     return None
-
-
-def is_port_open(port: int = 8000) -> bool:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.5)
-            return s.connect_ex(("127.0.0.1", port)) == 0
-    except Exception:
-        return False
 
 
 def main():
@@ -174,21 +166,10 @@ def main():
                 pass
         time.sleep(0.5)
 
-    if public_url:
-        print("\n" + "#" * 72, flush=True)
-        print("  🎉 EIDOMIRA LIVE WEBCAM STUDIO IS LIVE!", flush=True)
-        print("#" * 72, flush=True)
-        print(f"\n  👉 OPEN THIS LINK ON YOUR MAC BROWSER (Chrome/Safari):", flush=True)
-        print(f"     {public_url}/app\n", flush=True)
-        print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026", flush=True)
-        print("#" * 72, flush=True)
-        print("\nStarting Eidomira Uvicorn server on port 8000…\n", flush=True)
-    else:
-        print("Starting Eidomira Uvicorn server on port 8000…", flush=True)
-
-    # 5. Launch Uvicorn in foreground with loaded app
+    # 5. Launch Uvicorn in background thread and wait for 200 OK before announcing
     import uvicorn
     import traceback
+
     try:
         if str(ROOT) in sys.path:
             sys.path.remove(str(ROOT))
@@ -208,7 +189,38 @@ def main():
             print(f"⚠️ LivePortrait running in fallback mode: {err}\n", flush=True)
 
         from app.main import app as fastapi_app
-        uvicorn.run(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
+
+        config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
+        server = uvicorn.Server(config)
+        server_thread = threading.Thread(target=server.run, daemon=True)
+        server_thread.start()
+
+        print("Waiting for Eidomira web server to respond on port 8000…", flush=True)
+        server_ready = False
+        start_wait = time.time()
+        while time.time() - start_wait < 60:
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:8000/app", timeout=1.0) as resp:
+                    if resp.status == 200:
+                        server_ready = True
+                        break
+            except Exception:
+                pass
+            time.sleep(1.0)
+
+        if server_ready and public_url:
+            print("\n" + "#" * 72, flush=True)
+            print("  🎉 EIDOMIRA LIVE WEBCAM STUDIO IS 100% READY!", flush=True)
+            print("#" * 72, flush=True)
+            print(f"\n  👉 OPEN THIS LINK ON YOUR MAC BROWSER (Chrome/Safari):", flush=True)
+            print(f"     {public_url}/app\n", flush=True)
+            print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026", flush=True)
+            print("#" * 72 + "\n", flush=True)
+        elif not server_ready:
+            print("⚠️ Warning: Server did not respond within 60 seconds on port 8000.", flush=True)
+
+        server_thread.join()
+
     except Exception as exc:
         print(f"\n[Server Error]: {exc}", flush=True)
         traceback.print_exc()
