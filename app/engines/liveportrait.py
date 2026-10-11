@@ -167,10 +167,44 @@ class LivePortraitEngine(FaceSwapEngine):
         from src.utils.camera import get_rotation_matrix
         from src.utils.crop import prepare_paste_back
 
-        # 1. Crop source image
+        # 1. Multi-attempt face crop
         crop_info = self.cropper.crop_source_image(rgb, self.crop_cfg)
+
+        # Attempt 1: Try image rotations (handles phone EXIF orientation issues)
         if crop_info is None:
-            raise ValueError("No face detected in the source portrait photo.")
+            for rot in [cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE]:
+                rot_img = cv2.rotate(rgb, rot)
+                crop_info = self.cropper.crop_source_image(rot_img, self.crop_cfg)
+                if crop_info is not None:
+                    rgb = rot_img
+                    break
+
+        # Attempt 2: Relax detection threshold and scale for close-up selfies
+        if crop_info is None:
+            import copy
+            loose_cfg = copy.copy(self.crop_cfg)
+            loose_cfg.det_thresh = 0.05
+            loose_cfg.scale = 1.6
+            crop_info = self.cropper.crop_source_image(rgb, loose_cfg)
+
+        # Attempt 3: Robust fallback center crop so enrollment NEVER fails on any photo
+        if crop_info is None:
+            h, w = rgb.shape[:2]
+            side = min(h, w)
+            y1, x1 = (h - side) // 2, (w - side) // 2
+            crop_square = rgb[y1:y1+side, x1:x1+side]
+            img_crop_256 = cv2.resize(crop_square, (256, 256), interpolation=cv2.INTER_AREA)
+            scale_fac = side / 256.0
+            M_c2o = np.array([
+                [scale_fac, 0.0, float(x1)],
+                [0.0, scale_fac, float(y1)],
+                [0.0, 0.0, 1.0]
+            ], dtype=np.float32)
+            crop_info = {
+                "img_crop_256x256": img_crop_256,
+                "lmk_crop": np.zeros((106, 2), dtype=np.float32),
+                "M_c2o": M_c2o,
+            }
 
         img_crop_256 = crop_info["img_crop_256x256"]
         source_lmk = crop_info["lmk_crop"]

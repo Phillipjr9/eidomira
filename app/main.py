@@ -164,12 +164,21 @@ async def shutdown_peers():
 
 
 def decode(data: bytes):
-    bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    if bgr is None: raise ValueError("Invalid image")
-    if bgr.shape[1] > settings.max_frame_width:
-        ratio = settings.max_frame_width / bgr.shape[1]
-        bgr = cv2.resize(bgr, None, fx=ratio, fy=ratio, interpolation=cv2.INTER_AREA)
-    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    try:
+        import io
+        from PIL import Image, ImageOps
+        pil_img = Image.open(io.BytesIO(data))
+        pil_img = ImageOps.exif_transpose(pil_img)
+        rgb = np.array(pil_img.convert("RGB"))
+    except Exception:
+        bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if bgr is None: raise ValueError("Invalid image")
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+    if rgb.shape[1] > settings.max_frame_width:
+        ratio = settings.max_frame_width / rgb.shape[1]
+        rgb = cv2.resize(rgb, None, fx=ratio, fy=ratio, interpolation=cv2.INTER_AREA)
+    return rgb
 
 
 def encode(rgb):
