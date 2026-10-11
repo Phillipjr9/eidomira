@@ -699,8 +699,36 @@ $('source').onchange=e=>{
     selectedPresetBlob=null;
     $('sourcePreview').src=URL.createObjectURL(f);
     $('uploadCard').classList.add('hasImage');
+    $('consent').checked=true;
+    setTimeout(()=>{$('enrollBtn').click()},100);
   }
 };
+
+function updateOutputEmptyState(){
+  if(running) return;
+  const title=$('outputEmptyTitle');
+  const sub=$('outputEmptySub');
+  const go=$('goBtn');
+  if(!title||!sub||!go) return;
+
+  if(!session && !media){
+    title.textContent='Your transformation appears here';
+    sub.textContent='1. Choose a portrait. 2. Click "Start camera".';
+    go.disabled=true;
+  }else if(!session){
+    title.textContent='Step 1 needed';
+    sub.textContent='Click "Elon", "Amara" or upload a photo in Panel 1.';
+    go.disabled=true;
+  }else if(!media){
+    title.textContent='Step 2 needed';
+    sub.textContent='Click "Start camera" in Panel 2 to connect your webcam.';
+    go.disabled=true;
+  }else{
+    title.textContent='Ready to transform!';
+    sub.textContent='Click the blue "✦ Start transformation" button below to begin!';
+    go.disabled=false;
+  }
+}
 
 $('enrollBtn').onclick=async()=>{
   let f=$('source').files[0]||selectedPresetBlob;
@@ -718,12 +746,13 @@ $('enrollBtn').onclick=async()=>{
     if(j.expires_in)$('privacyTtl').textContent='Ends '+Math.round(j.expires_in/60)+' minutes after enrolling';
     $('p1').classList.add('active');$('p2').classList.add('active');
     if(media)$('goBtn').disabled=false;
+    updateOutputEmptyState();
     if(running){
       status('Switching to enrolled identity…');
       stopTransform(false);
       setTimeout(startTransform,400);
     }
-  }catch(e){status(e.message,true)}finally{$('enrollBtn').disabled=false}
+  }catch(e){status(e.message,true)}finally{$('enrollBtn').disabled=false;updateOutputEmptyState()}
 };
 function status(t,error=false){$('status').textContent=t;$('status').style.color=error?'#fda4af':'#86efac'}
 
@@ -778,10 +807,12 @@ $('cameraBtn').onclick=async()=>{
     $('cameraEmpty').style.display='none';$('cameraBadge').textContent='LIVE';$('cameraBadge').className='badge live';
     $('cameraBtn').textContent='Stop camera';$('flipBtn').disabled=false;$('p2').classList.add('active');$('goBtn').disabled=!session;
     $('syntheticCamBtn').hidden=true;
+    updateOutputEmptyState();
   }catch(e){
     status('Camera blocked: '+e.message,true);
     $('syntheticCamBtn').hidden=false;
     $('syntheticCamBtn').scrollIntoView({behavior:'smooth',block:'nearest'});
+    updateOutputEmptyState();
   }
 };
 $('syntheticCamBtn').onclick=async()=>{
@@ -794,11 +825,12 @@ $('syntheticCamBtn').onclick=async()=>{
     $('cameraBtn').textContent='Stop camera';$('flipBtn').disabled=true;$('p2').classList.add('active');$('goBtn').disabled=!session;
     $('syntheticCamBtn').hidden=true;
     status('Test video feed running. Click Start transformation.');
-  }catch(e){status('Test stream error: '+e.message,true)}
+    updateOutputEmptyState();
+  }catch(e){status('Test stream error: '+e.message,true);updateOutputEmptyState()}
 };
 function stopCamera(){
   if(syntheticAnimId){cancelAnimationFrame(syntheticAnimId);syntheticAnimId=null}
-  stopTransform();media?.getTracks().forEach(t=>t.stop());media=null;$('video').srcObject=null;$('cameraEmpty').style.display='grid';$('cameraBadge').textContent='OFFLINE';$('cameraBadge').className='badge off';$('cameraBtn').innerHTML='Start camera <b>→</b>';$('goBtn').disabled=true;$('flipBtn').disabled=true
+  stopTransform();media?.getTracks().forEach(t=>t.stop());media=null;$('video').srcObject=null;$('cameraEmpty').style.display='grid';$('cameraBadge').textContent='OFFLINE';$('cameraBadge').className='badge off';$('cameraBtn').innerHTML='Start camera <b>→</b>';$('goBtn').disabled=true;$('flipBtn').disabled=true;updateOutputEmptyState();
 }
 $('flipBtn').onclick=async()=>{const wasRunning=running;if(wasRunning)stopTransform();media?.getTracks().forEach(t=>t.stop());media=null;cameraFacing=cameraFacing==='user'?'environment':'user';await $('cameraBtn').click();status(cameraFacing==='user'?'Front camera selected.':'Rear camera selected.');};
 
@@ -985,6 +1017,7 @@ function stopTransform(reset=true){
   wakeLock?.release().catch(()=>{});wakeLock=null;
   $('output').srcObject=null;$('output').style.display='none';$('outputCanvas').style.display='none';$('outputEmpty').style.display='grid';$('livenessPrompt').style.display='none';
   $('goBtn').innerHTML='<span>✦</span> Start transformation';$('outputBadge').textContent='WAITING';$('outputBadge').className='badge';$('recordBtn').disabled=true;$('recenterBtn').disabled=true;$('snapshotBtn').disabled=true;$('cleanBtn').disabled=true;exitCleanMode();
+  updateOutputEmptyState();
   if(reset)reconnects=0;
 }
 
@@ -1105,7 +1138,7 @@ $('cleanBtn').onclick=()=>document.body.classList.contains('cleanMode')?exitClea
 function enterCleanMode(){if(!$('output').srcObject)return;document.body.classList.add('cleanMode');document.documentElement.requestFullscreen?.().catch(()=>{});status('Clean output enabled. Press Escape to exit.')}
 function exitCleanMode(){document.body.classList.remove('cleanMode');if(document.fullscreenElement)document.exitFullscreen?.().catch(()=>{})}
 document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA'].includes(document.activeElement?.tagName))return;if(e.key==='Escape')exitCleanMode();if(e.key.toLowerCase()==='r'&&!$('recordBtn').disabled)$('recordBtn').click();if(e.key.toLowerCase()==='c'&&!$('recenterBtn').disabled)$('recenterBtn').click();if(e.key.toLowerCase()==='s'&&!$('snapshotBtn').disabled)$('snapshotBtn').click();if(e.key.toLowerCase()==='o'&&!$('cleanBtn').disabled)$('cleanBtn').click()});
-$('resetBtn').onclick=async()=>{stopTransform();if(session)await apiFetch('/api/sessions/'+session,{method:'DELETE'});session=null;$('source').value='';$('uploadCard').classList.remove('hasImage');$('goBtn').disabled=true;$('verified').textContent='PENDING';status('Session cleared. Choose another portrait.')};
+$('resetBtn').onclick=async()=>{stopTransform();if(session)await apiFetch('/api/sessions/'+session,{method:'DELETE'});session=null;$('source').value='';$('uploadCard').classList.remove('hasImage');$('goBtn').disabled=true;$('verified').textContent='PENDING';status('Session cleared. Choose another portrait.');updateOutputEmptyState()};
 async function requestCallToken(endpoint,payload){const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}),j=await r.json();if(!r.ok)throw Error(j.error||'Call request failed');return j}
 $('createCall').onclick=async()=>{try{const name=$('callName').value.trim();if(!name)throw Error('Enter a display name');const auth=await requestCallToken('/api/calls/rooms',{display_name:name});$('callRoom').value=auth.room;await connectCall(auth)}catch(e){$('callStatus').textContent=e.message}};
 $('joinCall').onclick=async()=>{try{const name=$('callName').value.trim(),room=$('callRoom').value.trim();if(!name||!room)throw Error('Enter your name and room code');const auth=await requestCallToken('/api/calls/join',{display_name:name,room});await connectCall(auth)}catch(e){$('callStatus').textContent=e.message}};
