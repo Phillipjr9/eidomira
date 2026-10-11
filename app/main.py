@@ -505,6 +505,18 @@ def reset(sid: str):
     return {"ok": True}
 
 
+@app.post("/api/sessions/{sid}/recalibrate")
+def recalibrate_session(sid: str):
+    session = sessions.get(sid)
+    if not session:
+        return JSONResponse({"error": "Session expired"}, status_code=404)
+    with session.frame_lock:
+        if isinstance(session.identity, dict):
+            session.identity["anchor_info"] = None
+            session.identity["anchor_R"] = None
+    return {"ok": True}
+
+
 @app.get("/api/webrtc/{sid}/configuration")
 def webrtc_configuration(sid: str):
     if not sessions.get(sid):

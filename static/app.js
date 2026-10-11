@@ -833,6 +833,7 @@ function startWebSocketTransform(){
     displayCanvas.style.display='block';
     $('outputEmpty').style.display='none';
     $('recordBtn').disabled=false;
+    $('recenterBtn').disabled=false;
     $('cleanBtn').disabled=false;
 
     wsFrameTimer=setInterval(()=>{
@@ -910,7 +911,7 @@ async function startTransform(){
     if(!configResponse.ok)throw Error(rtcConfig.error||'Could not obtain ICE configuration');
     pc=new RTCPeerConnection(rtcConfig);
     media.getVideoTracks().forEach(track=>{const transceiver=pc.addTransceiver(track,{direction:'sendrecv'});try{const codecs=RTCRtpSender.getCapabilities('video').codecs;const rank=c=>c.mimeType.toLowerCase()==='video/h264'?0:c.mimeType.toLowerCase()==='video/vp8'?1:2;transceiver.setCodecPreferences([...codecs].sort((a,b)=>rank(a)-rank(b)))}catch{}});
-    pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);$('output').srcObject=stream;$('output').style.display='block';$('outputEmpty').style.display='none';$('recordBtn').disabled=false;$('cleanBtn').disabled=false;$('output').play().catch(()=>{})};
+    pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);$('output').srcObject=stream;$('output').style.display='block';$('outputEmpty').style.display='none';$('recordBtn').disabled=false;$('recenterBtn').disabled=false;$('cleanBtn').disabled=false;$('output').play().catch(()=>{})};
     pc.ondatachannel=e=>{if(e.channel.label==='eidomira-telemetry')e.channel.onmessage=handleTelemetry};
 
     // If WebRTC UDP doesn't reach connected in 2.5s (e.g. cloud NAT without UDP), switch to WebSocket stream
@@ -982,7 +983,7 @@ function stopTransform(reset=true){
   if(pc){pc.onconnectionstatechange=null;pc.getSenders().forEach(s=>{if(s.track)s.replaceTrack(null).catch(()=>{})});pc.close();pc=null}
   wakeLock?.release().catch(()=>{});wakeLock=null;
   $('output').srcObject=null;$('output').style.display='none';$('outputCanvas').style.display='none';$('outputEmpty').style.display='grid';$('livenessPrompt').style.display='none';
-  $('goBtn').innerHTML='<span>✦</span> Start transformation';$('outputBadge').textContent='WAITING';$('outputBadge').className='badge';$('recordBtn').disabled=true;$('cleanBtn').disabled=true;exitCleanMode();
+  $('goBtn').innerHTML='<span>✦</span> Start transformation';$('outputBadge').textContent='WAITING';$('outputBadge').className='badge';$('recordBtn').disabled=true;$('recenterBtn').disabled=true;$('cleanBtn').disabled=true;exitCleanMode();
   if(reset)reconnects=0;
 }
 
@@ -990,6 +991,13 @@ function preferredMime(){
   const choices=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
   return choices.find(t=>MediaRecorder.isTypeSupported(t))||'';
 }
+$('recenterBtn').onclick=async()=>{
+  if(!session)return;
+  try{
+    await apiFetch('/api/sessions/'+session+'/recalibrate',{method:'POST'});
+    status('Neutral posture recalibrated.');
+  }catch(e){status('Recalibration failed: '+e.message,true)}
+};
 $('recordBtn').onclick=()=>recorder&&recorder.state==='recording'?stopRecording():startRecording();
 async function startRecording(){
   const outputStream=$('output').srcObject || ($('outputCanvas').style.display!=='none'?$('outputCanvas').captureStream(30):null);
@@ -1016,7 +1024,7 @@ if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.ser
 $('cleanBtn').onclick=()=>document.body.classList.contains('cleanMode')?exitCleanMode():enterCleanMode();
 function enterCleanMode(){if(!$('output').srcObject)return;document.body.classList.add('cleanMode');document.documentElement.requestFullscreen?.().catch(()=>{});status('Clean output enabled. Press Escape to exit.')}
 function exitCleanMode(){document.body.classList.remove('cleanMode');if(document.fullscreenElement)document.exitFullscreen?.().catch(()=>{})}
-document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA'].includes(document.activeElement?.tagName))return;if(e.key==='Escape')exitCleanMode();if(e.key.toLowerCase()==='r'&&!$('recordBtn').disabled)$('recordBtn').click();if(e.key.toLowerCase()==='o'&&!$('cleanBtn').disabled)$('cleanBtn').click()});
+document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA'].includes(document.activeElement?.tagName))return;if(e.key==='Escape')exitCleanMode();if(e.key.toLowerCase()==='r'&&!$('recordBtn').disabled)$('recordBtn').click();if(e.key.toLowerCase()==='c'&&!$('recenterBtn').disabled)$('recenterBtn').click();if(e.key.toLowerCase()==='o'&&!$('cleanBtn').disabled)$('cleanBtn').click()});
 $('resetBtn').onclick=async()=>{stopTransform();if(session)await apiFetch('/api/sessions/'+session,{method:'DELETE'});session=null;$('source').value='';$('uploadCard').classList.remove('hasImage');$('goBtn').disabled=true;$('verified').textContent='PENDING';status('Session cleared. Choose another portrait.')};
 async function requestCallToken(endpoint,payload){const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}),j=await r.json();if(!r.ok)throw Error(j.error||'Call request failed');return j}
 $('createCall').onclick=async()=>{try{const name=$('callName').value.trim();if(!name)throw Error('Enter a display name');const auth=await requestCallToken('/api/calls/rooms',{display_name:name});$('callRoom').value=auth.room;await connectCall(auth)}catch(e){$('callStatus').textContent=e.message}};

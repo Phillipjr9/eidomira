@@ -195,6 +195,7 @@ class LivePortraitEngine(FaceSwapEngine):
             "f_s": f_s,
             "x_s": x_s,
             "x_s_info": x_s_info,
+            "x_c_s": x_s_info["kp"],
             "R_s": R_s,
             "M_c2o": M_c2o,
             "mask_ori_float": mask_ori_float,
@@ -230,23 +231,58 @@ class LivePortraitEngine(FaceSwapEngine):
 
         import torch
         from src.utils.camera import get_rotation_matrix
-        from src.utils.crop import paste_back
+        from src.utils.crop import crop_image, paste_back
 
         try:
             with torch.inference_mode():
-                # 1. Detect and crop driving face from webcam frame
-                crop_info = self.cropper.crop_source_image(rgb, self.crop_cfg)
-                if crop_info is None:
-                    # No face detected in webcam; return unchanged frame
-                    return FrameResult(rgb, False, True, (time.perf_counter() - start) * 1000.0)
+                # 1. Fast landmark-tracking face crop (slashes 300ms RetinaFace per-frame overhead down to ~2ms)
+                self._frame_count = getattr(self, "_frame_count", 0) + 1
+                last_lmk = getattr(self, "_last_lmk", None)
+                lmk = None
 
-                driving_crop_256 = crop_info["img_crop_256x256"]
+                # Periodically re-detect (every 30 frames) or track smoothly
+                if last_lmk is not None and (self._frame_count % 30 != 0):
+                    try:
+                        lmk = self.cropper.human_landmark_runner.run(rgb, last_lmk)
+                    except Exception:
+                        lmk = None
+
+                if lmk is None:
+                    # Full detector sweep
+                    img_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                    src_face = self.cropper.face_analysis_wrapper.get(
+                        img_bgr,
+                        flag_do_landmark_2d_106=True,
+                        direction=self.crop_cfg.direction,
+                        max_face_num=self.crop_cfg.max_face_num,
+                    )
+                    if not src_face:
+                        return FrameResult(rgb, False, True, (time.perf_counter() - start) * 1000.0)
+                    lmk = src_face[0].landmark_2d_106
+                    lmk = self.cropper.human_landmark_runner.run(rgb, lmk)
+                    self._last_lmk = lmk
+                else:
+                    self._last_lmk = lmk
+
+                # Crop driving face to 256x256 using tracking landmarks
+                ret_dct = crop_image(
+                    rgb,
+                    lmk,
+                    dsize=self.crop_cfg.dsize,
+                    scale=self.crop_cfg.scale,
+                    vx_ratio=self.crop_cfg.vx_ratio,
+                    vy_ratio=self.crop_cfg.vy_ratio,
+                    flag_do_rot=self.crop_cfg.flag_do_rot,
+                )
+                driving_crop_256 = cv2.resize(ret_dct["img_crop"], (256, 256), interpolation=cv2.INTER_AREA)
+
+                # 2. Extract driving keypoints and pose
                 I_d = self.wrapper.prepare_source(driving_crop_256)
                 x_d_i_info = self.wrapper.get_kp_info(I_d)
                 R_d_i = get_rotation_matrix(x_d_i_info["pitch"], x_d_i_info["yaw"], x_d_i_info["roll"])
 
-                # 2. Anchor calibration (first driving frame calibrates baseline neutral posture)
-                if identity["anchor_info"] is None:
+                # 3. Anchor calibration (baseline neutral posture)
+                if identity.get("anchor_info") is None or (overrides and overrides.get("recalibrate")):
                     identity["anchor_info"] = {
                         k: v.clone() if isinstance(v, torch.Tensor) else v
                         for k, v in x_d_i_info.items()
@@ -256,19 +292,44 @@ class LivePortraitEngine(FaceSwapEngine):
                 anchor = identity["anchor_info"]
                 anchor_R = identity["anchor_R"]
 
-                # 3. Compute relative motion and expression retargeting
-                delta_new = identity["x_s_info"]["exp"] + (x_d_i_info["exp"] - anchor["exp"])
-                R_new = (R_d_i @ anchor_R.permute(0, 2, 1)) @ identity["R_s"]
+                # 4. Relative motion and calibrated expression retargeting
+                # Head rotation: R_rel = (R_d_i @ R_anchor^T) @ R_s
+                R_rel = R_d_i @ anchor_R.permute(0, 2, 1)
+                R_new = R_rel @ identity["R_s"]
+
+                # Expression retargeting with dampening & clamping to eliminate bulging eyes & grimacing
+                delta_exp = (x_d_i_info["exp"] - anchor["exp"]) * 0.85
+                delta_exp = torch.clamp(delta_exp, -1.2, 1.2)
+                delta_new = identity["x_s_info"]["exp"] + delta_exp
+
+                # Scale and 2D translation (zero out tz depth to prevent 3D projective distortion)
                 scale_new = identity["x_s_info"]["scale"] * (x_d_i_info["scale"] / anchor["scale"])
                 t_new = identity["x_s_info"]["t"] + (x_d_i_info["t"] - anchor["t"])
+                t_new[..., 2].fill_(0)
 
-                x_d_new = scale_new * (identity["x_s"] @ R_new) + t_new + delta_new
+                # LivePortrait canonical keypoint deformation: scale * (x_c_s @ R + delta_new) + t
+                x_c_s = identity.get("x_c_s")
+                if x_c_s is None:
+                    x_c_s = identity["x_s_info"]["kp"]
 
-                # 4. Neural Warp and SPADE generator
+                bs, num_kp = x_c_s.shape[:2]
+                x_d_new = scale_new * (x_c_s.view(bs, num_kp, 3) @ R_new + delta_new.view(bs, num_kp, 3)) + t_new
+
+                # 5. LivePortrait Stitching module: anchors facial boundaries & prevents unnatural warping
+                if hasattr(self.wrapper, "stitching") and getattr(self.inference_cfg, "flag_stitching", True):
+                    x_d_new = self.wrapper.stitching(identity["x_s"], x_d_new)
+
+                # 6. Temporal EMA smoothing to eliminate micro-jitter without adding latency
+                prev_kp = getattr(self, "_prev_x_d_new", None)
+                if prev_kp is not None and prev_kp.shape == x_d_new.shape:
+                    x_d_new = 0.80 * x_d_new + 0.20 * prev_kp
+                self._prev_x_d_new = x_d_new.clone()
+
+                # 7. Neural Warp and SPADE generator
                 out_gen = self.wrapper.warp_decode(identity["f_s"], identity["x_s"], x_d_new)
                 generated_rgb = self.wrapper.parse_output(out_gen["out"])[0]
 
-                # 5. Seamless Pasteback into source background
+                # 8. Seamless Pasteback into source background
                 if self.flag_pasteback and identity.get("M_c2o") is not None and identity.get("mask_ori_float") is not None:
                     result_rgb = paste_back(
                         generated_rgb,

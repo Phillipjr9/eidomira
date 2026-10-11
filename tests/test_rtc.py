@@ -213,6 +213,7 @@ def test_a_zero_sample_leaves_the_controller_untouched():
 
 def test_liveness_phase_still_emits_frames_but_is_not_measured(monkeypatch):
     """The challenge phase must keep the video flowing while being excluded from tuning."""
+    monkeypatch.setattr(rtc.settings, "require_self_verification", True)
     observed, channel, _ = asyncio.run(run_frames(FakeEngine(), monkeypatch, verified=False))
 
     assert channel.of_type("liveness"), "no liveness challenge was sent"
