@@ -117,7 +117,9 @@ def ensure_models_for_swap():
 def ensure_buffalo_l():
     user_bf = Path.home() / ".insightface" / "models" / "buffalo_l"
     if user_bf.exists() and any(user_bf.glob("*.onnx")):
-        return
+        return user_bf
+
+    # Check local caches first
     for cand in [
         Path("/kaggle/working/LivePortrait/pretrained_weights/insightface/models/buffalo_l"),
         ROOT / "pretrained_weights" / "insightface" / "models" / "buffalo_l",
@@ -127,9 +129,40 @@ def ensure_buffalo_l():
             try:
                 os.symlink(str(cand), str(user_bf))
                 print("Linked InsightFace buffalo_l models from cache.", flush=True)
-                return
+                return user_bf
             except Exception:
                 pass
+
+    user_bf.parent.mkdir(parents=True, exist_ok=True)
+    zip_path = user_bf.parent / "buffalo_l.zip"
+    bf_urls = [
+        "https://huggingface.co/techwavelaps/aceplus-face/resolve/main/insightface/models/buffalo_l.zip",
+        "https://huggingface.co/public-data/insightface/resolve/main/buffalo_l.zip",
+        "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip",
+    ]
+    print("\n[InsightFace Setup]: Downloading buffalo_l landmark models (~275 MB)…", flush=True)
+    for url in bf_urls:
+        try:
+            print(f"Fetching buffalo_l from {url}…", flush=True)
+            subprocess.run(["curl", "-fSL", "--progress-bar", url, "-o", str(zip_path)], check=True)
+            if zip_path.exists() and zip_path.stat().st_size > 50_000_000:
+                print("Extracting buffalo_l models…", flush=True)
+                import zipfile
+                with zipfile.ZipFile(str(zip_path), "r") as zip_ref:
+                    zip_ref.extractall(str(user_bf))
+                zip_path.unlink(missing_ok=True)
+                # Flatten nested folder if the zip contained a root directory
+                if not any(user_bf.glob("*.onnx")):
+                    for sub in user_bf.glob("*"):
+                        if sub.is_dir() and any(sub.glob("*.onnx")):
+                            for f in sub.glob("*.onnx"):
+                                shutil.move(str(f), str(user_bf / f.name))
+                print("✅ InsightFace buffalo_l ready!", flush=True)
+                return user_bf
+        except Exception as exc:
+            print(f"Notice on buffalo_l mirror ({exc}), trying next…", flush=True)
+            continue
+    return user_bf
 
 
 def main():
