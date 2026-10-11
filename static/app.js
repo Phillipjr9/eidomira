@@ -945,46 +945,9 @@ function startWebSocketTransform(){
 
 async function startTransform(){
   if(!session||!media)return;
-  // Cloudflare Quick Tunnels (*.trycloudflare.com) only proxy TCP HTTP/WebSocket, blocking WebRTC UDP media.
-  // Use direct WebSocket streaming over TCP 443 so video frames stream continuously without freezing!
-  if(location.hostname.includes('trycloudflare.com')||location.search.includes('stream=ws')){
-    startWebSocketTransform();
-    return;
-  }
-  $('goBtn').disabled=true;status('Creating secure WebRTC session…');
-  try{
-    const configResponse=await apiFetch('/api/webrtc/'+session+'/configuration');
-    const rtcConfig=await configResponse.json();
-    if(!configResponse.ok)throw Error(rtcConfig.error||'Could not obtain ICE configuration');
-    pc=new RTCPeerConnection(rtcConfig);
-    media.getVideoTracks().forEach(track=>{const transceiver=pc.addTransceiver(track,{direction:'sendrecv'});try{const codecs=RTCRtpSender.getCapabilities('video').codecs;const rank=c=>c.mimeType.toLowerCase()==='video/h264'?0:c.mimeType.toLowerCase()==='video/vp8'?1:2;transceiver.setCodecPreferences([...codecs].sort((a,b)=>rank(a)-rank(b)))}catch{}});
-    pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);$('output').srcObject=stream;$('output').style.display='block';$('outputEmpty').style.display='none';$('recordBtn').disabled=false;$('recenterBtn').disabled=false;$('snapshotBtn').disabled=false;$('cleanBtn').disabled=false;$('output').play().catch(()=>{})};
-    pc.ondatachannel=e=>{if(e.channel.label==='eidomira-telemetry')e.channel.onmessage=handleTelemetry};
-
-    // If WebRTC UDP doesn't reach connected in 2.5s (e.g. cloud NAT without UDP), switch to WebSocket stream
-    const fallbackTimer=setTimeout(()=>{
-      if(running&&(!pc||pc.connectionState!=='connected')){
-        startWebSocketTransform();
-      }
-    },2500);
-
-    pc.onconnectionstatechange=()=>{
-      const state=pc?.connectionState;
-      if(state==='connected'){clearTimeout(fallbackTimer);status('Live neural channel connected.');reconnects=0}
-      if(['failed','disconnected'].includes(state)&&running){clearTimeout(fallbackTimer);startWebSocketTransform()}
-    };
-    const offer=await pc.createOffer();await pc.setLocalDescription(offer);await waitForIce(pc);
-    const response=await apiFetch('/api/webrtc/'+session+'/offer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sdp:pc.localDescription.sdp,type:pc.localDescription.type})});
-    const answer=await response.json();if(!response.ok)throw Error(answer.error||'WebRTC negotiation failed');
-    await pc.setRemoteDescription(answer);
-    try{wakeLock=await navigator.wakeLock?.request('screen')}catch{}
-    running=true;$('goBtn').disabled=false;$('goBtn').innerHTML='<span>■</span> Stop transformation';
-    $('outputBadge').textContent='CONNECTING';$('outputBadge').className='badge live';$('p3').classList.add('active');
-    statsTimer=setInterval(updateWebRTCStats,1000);
-  }catch(e){
-    // If WebRTC fails outright (e.g. browser ICE block), fall back to WebSocket immediately
-    startWebSocketTransform();
-  }
+  // Direct WebSocket streaming over TCP ensures video frames stream smoothly
+  // and reliably through Cloudflare tunnels, cloud proxies, and firewalls without WebRTC UDP drop!
+  startWebSocketTransform();
 }
 function handleTelemetry(event){
   const j=JSON.parse(event.data);

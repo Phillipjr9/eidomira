@@ -182,6 +182,10 @@ def decode(data: bytes):
 
 
 def encode(rgb):
+    if rgb.dtype != np.uint8:
+        rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+    if not rgb.flags["C_CONTIGUOUS"]:
+        rgb = np.ascontiguousarray(rgb)
     ok, data = cv2.imencode(".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR),
                             [cv2.IMWRITE_JPEG_QUALITY, settings.jpeg_quality])
     if not ok: raise ValueError("Frame encoding failed")
@@ -610,6 +614,8 @@ async def live(socket: WebSocket, sid: str):
         while True:
             data = await socket.receive_bytes()
             frame = decode(data)
+            if frame is None:
+                continue
             if settings.require_self_verification and not session.verified:
                 session.verified, session.verify_score = await asyncio.to_thread(engine.verify_self, frame, session.identity)
                 await socket.send_json({"type":"verification", "verified":session.verified,
@@ -624,9 +630,12 @@ async def live(socket: WebSocket, sid: str):
                 import traceback
                 print(f"❌ [Engine Process Error]: {proc_exc}", flush=True)
                 traceback.print_exc()
-                await socket.send_json({"type": "fatal", "message": f"Neural error: {proc_exc}"})
-                await socket.close()
-                return
+                err_frame = frame.copy()
+                cv2.putText(err_frame, f"ERR: {str(proc_exc)[:40]}", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                await socket.send_json({"type":"frame", "latency_ms":0, "face_found":False, "server_ms":0})
+                await socket.send_bytes(encode(err_frame))
+                continue
             await socket.send_json({"type":"frame", "latency_ms":round(result.latency_ms,1),
                                     "face_found":result.face_found, "server_ms":round((time.perf_counter()-started)*1000,1)})
             await socket.send_bytes(encode(result.image))

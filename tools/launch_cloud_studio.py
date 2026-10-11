@@ -144,8 +144,10 @@ def main():
         sys.path.insert(0, str(ROOT))
 
     # Free any leftover processes from previous runs to guarantee clean port 8000 and full GPU VRAM
-    subprocess.run(["pkill", "-f", "cloudflared"], check=False)
-    subprocess.run(["pkill", "-f", "LivePortrait/app.py"], check=False)
+    subprocess.run(["pkill", "-9", "-f", "cloudflared"], check=False)
+    subprocess.run(["pkill", "-9", "-f", "LivePortrait/app.py"], check=False)
+    subprocess.run(["pkill", "-9", "-f", "uvicorn"], check=False)
+    subprocess.run(["fuser", "-k", "8000/tcp"], check=False)
 
     import argparse
     parser = argparse.ArgumentParser(description="Launch Eidomira Studio on Cloud GPU")
