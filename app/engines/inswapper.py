@@ -94,6 +94,26 @@ class InSwapperEngine(FaceSwapEngine):
     def enroll(self, rgb):
         faces = self._faces(rgb)
         if not faces:
+            # Try rotated versions (for phone camera uploads)
+            for rot_flag in [cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE]:
+                rotated = cv2.rotate(rgb, rot_flag)
+                f = self._faces(rotated)
+                if f:
+                    faces = f
+                    rgb = rotated
+                    break
+        if not faces:
+            # Try center crop fallback
+            h, w = rgb.shape[:2]
+            side = min(h, w)
+            cy, cx = h // 2, w // 2
+            center_crop = rgb[cy - side // 2 : cy + side // 2, cx - side // 2 : cx + side // 2]
+            f = self._faces(cv2.resize(center_crop, (512, 512)))
+            if f:
+                faces = f
+                rgb = cv2.resize(center_crop, (512, 512))
+
+        if not faces:
             raise ValueError("Enrollment requires a clearly visible face.")
         best_face = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
         return Enrollment(identity=best_face, preview=rgb)

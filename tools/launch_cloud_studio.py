@@ -64,27 +64,54 @@ def download_cloudflared():
     return None
 
 
-def ensure_inswapper_model():
-    model_path = ROOT / "models" / "inswapper_128.onnx"
-    if model_path.exists() and model_path.stat().st_size > 500_000_000:
-        return model_path
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    urls = [
-        "https://huggingface.co/ezioruan/inswapper_128.onnx/resolve/main/inswapper_128.onnx",
-        "https://huggingface.co/xingren23/comfyflow-models/resolve/main/insightface/inswapper_128.onnx",
-    ]
-    print("\n[TikTok Live Swap Mode]: Downloading InSwapper weights (~554 MB)…", flush=True)
+def ensure_file_from_urls(target_path: Path, urls: list[str], min_size: int, label: str):
+    if target_path.exists() and target_path.stat().st_size >= min_size:
+        return target_path
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"\n[Model Setup]: Downloading {label}…", flush=True)
     for url in urls:
         try:
             print(f"Fetching from {url}…", flush=True)
-            subprocess.run(["curl", "-fSL", "--progress-bar", url, "-o", str(model_path)], check=True)
-            if model_path.exists() and model_path.stat().st_size > 500_000_000:
-                print("InSwapper model verified successfully!", flush=True)
-                return model_path
+            subprocess.run(["curl", "-fSL", "--progress-bar", url, "-o", str(target_path)], check=True)
+            if target_path.exists() and target_path.stat().st_size >= min_size:
+                print(f"✅ {label} ready ({target_path.stat().st_size / 1_000_000:.1f} MB)", flush=True)
+                return target_path
         except Exception as exc:
-            print(f"Download notice ({exc}), trying next mirror…", flush=True)
+            print(f"Notice on {url}: {exc}, trying next mirror…", flush=True)
             continue
-    return model_path
+    return target_path
+
+
+def ensure_models_for_swap():
+    ensure_buffalo_l()
+    m_swap = ensure_file_from_urls(
+        ROOT / "models" / "inswapper_128.onnx",
+        [
+            "https://huggingface.co/ezioruan/inswapper_128.onnx/resolve/main/inswapper_128.onnx",
+            "https://huggingface.co/xingren23/comfyflow-models/resolve/main/insightface/inswapper_128.onnx",
+        ],
+        500_000_000,
+        "InSwapper face swap weights (~554 MB)",
+    )
+    ensure_file_from_urls(
+        ROOT / "models" / "face_parser.onnx",
+        [
+            "https://huggingface.co/facefusion/models-3.3.0/resolve/main/face_parser.onnx",
+            "https://huggingface.co/facefusion/models-3.0.0/resolve/main/face_parser.onnx",
+        ],
+        50_000_000,
+        "BiSeNet face parser model (~50 MB)",
+    )
+    ensure_file_from_urls(
+        ROOT / "models" / "gfpgan_1.4.onnx",
+        [
+            "https://huggingface.co/facefusion/models-3.3.0/resolve/main/gfpgan_1.4.onnx",
+            "https://huggingface.co/facefusion/models-3.0.0/resolve/main/gfpgan_1.4.onnx",
+        ],
+        300_000_000,
+        "GFPGAN v1.4 face restoration model (~332 MB)",
+    )
+    return m_swap
 
 
 def ensure_buffalo_l():
@@ -124,9 +151,9 @@ def main():
     parser = argparse.ArgumentParser(description="Launch Eidomira Studio on Cloud GPU")
     parser.add_argument(
         "--mode",
-        choices=["portrait", "swap"],
-        default="portrait",
-        help="Studio mode: 'portrait' (LivePortrait Neural Motion) or 'swap' (InSwapper Face Replacement)"
+        choices=["swap", "portrait"],
+        default="swap",
+        help="Studio mode: 'swap' (InSwapper Live Webcam Face Replacement) or 'portrait' (LivePortrait Neural Motion Avatar)"
     )
     args, _ = parser.parse_known_args()
 
@@ -176,15 +203,14 @@ def main():
 
     if args.mode == "swap":
         os.environ["STUDIO_BACKEND"] = "inswapper"
-        model_p = ensure_inswapper_model()
-        ensure_buffalo_l()
+        model_p = ensure_models_for_swap()
         os.environ["STUDIO_MODEL_PATH"] = str(model_p)
         try:
             import insightface
         except ImportError:
             print("Installing insightface…", flush=True)
             subprocess.run([sys.executable, "-m", "pip", "install", "-q", "insightface"], check=True)
-        print("\nTarget Neural Backend: INSWAPPER (TikTok Live-Stream Webcam Swap · 0s Delay)", flush=True)
+        print("\nTarget Neural Backend: INSWAPPER (DeepFaceLive / FaceFusion Live Stream Face Swap · 0s Delay)", flush=True)
     else:
         os.environ["STUDIO_BACKEND"] = "liveportrait"
         # 2. Ensure LivePortrait neural models are present

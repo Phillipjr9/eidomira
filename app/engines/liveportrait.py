@@ -46,10 +46,18 @@ class LivePortraitEngine(FaceSwapEngine):
         repo_dir: Optional[str | Path] = None,
         weights_dir: Optional[str | Path] = None,
         device_id: int = 0,
-        flag_pasteback: bool = True,
+        flag_pasteback: bool = False,
     ):
         self.device_id = device_id
-        self.flag_pasteback = flag_pasteback
+        # Pasteback must be FALSE by default so LivePortrait outputs the clean high-resolution
+        # animated avatar persona instead of an ugly cut-and-paste collage over the driving video!
+        pb_env = os.environ.get("STUDIO_PASTEBACK", "").lower()
+        if pb_env in ("1", "true", "yes"):
+            self.flag_pasteback = True
+        elif pb_env in ("0", "false", "no"):
+            self.flag_pasteback = False
+        else:
+            self.flag_pasteback = False
         self.repo_dir = Path(repo_dir) if repo_dir else find_liveportrait_dir()
 
         if self.repo_dir and str(self.repo_dir) not in sys.path:
@@ -373,9 +381,7 @@ class LivePortraitEngine(FaceSwapEngine):
                 out_gen = self.wrapper.warp_decode(identity["f_s"], identity["x_s"], x_d_new)
                 generated_rgb = self.wrapper.parse_output(out_gen["out"])[0]
 
-                # 8. Live Webcam Face Replacement (TikTok Streamer Mode):
-                # Paste the transformed persona directly onto the user's live webcam video (rgb),
-                # preserving their real body, hands, hair, room lighting, and background!
+                # 8. Render output
                 if self.flag_pasteback and ret_dct.get("M_c2o") is not None:
                     from src.utils.crop import prepare_paste_back
                     driving_mask = prepare_paste_back(
@@ -391,7 +397,11 @@ class LivePortraitEngine(FaceSwapEngine):
                         driving_mask,
                     )
                 else:
-                    result_rgb = generated_rgb
+                    # Clean high-resolution animated persona
+                    if generated_rgb.shape[:2] != rgb.shape[:2]:
+                        result_rgb = cv2.resize(generated_rgb, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_LINEAR)
+                    else:
+                        result_rgb = generated_rgb
 
                 # 9. Periodic diagnostic capture (every 15 frames) for agent and notebook inspection
                 if self._frame_count % 15 == 0:
