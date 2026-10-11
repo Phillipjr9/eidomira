@@ -1,0 +1,199 @@
+/* Owner console.
+   Built on tokens.css and studio.css so it is the same product as the studio — the bar,
+   the panels, the buttons and the pills all come from there. What is added here is only
+   what a console needs and a workspace does not: a verdict banner, dense tables, and a
+   grid that puts the evidence beside the claim. */
+
+.ad-main {
+  max-width: var(--shell);
+  margin: 0 auto;
+  padding: clamp(20px, 4vw, 44px) var(--pad) 96px;
+}
+
+.ad-tag { margin-right: 14px; }
+
+.ad-who {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--paper-3);
+  margin-right: 14px;
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ad-who strong { color: var(--paper-2); font-weight: 500; }
+
+.ad-loading {
+  color: var(--paper-3);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  padding: 40px 0;
+}
+
+.ad-error {
+  border: 1px solid #ff8fc455;
+  background: #2a1020aa;
+  color: var(--paper-1);
+  border-radius: var(--r-md);
+  padding: 16px 18px;
+  margin-bottom: 22px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.ad-error a { color: var(--cyan-soft); }
+
+/* ── the verdict ─────────────────────────────────────────────────────────── */
+.ad-verdict {
+  border-radius: var(--r-lg);
+  padding: clamp(20px, 3vw, 30px);
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  background: var(--shadow-card) , #ffffff05;
+  position: relative;
+  overflow: hidden;
+}
+.ad-verdict h1 {
+  font-size: clamp(20px, 2.6vw, 27px);
+  font-weight: 500;
+  line-height: 1.2;
+  margin: 0 0 10px;
+  letter-spacing: -0.02em;
+}
+.ad-verdict p { margin: 0; color: var(--paper-3); font-size: 14px; line-height: 1.6; max-width: 78ch; }
+.ad-verdict ul { margin: 14px 0 0; padding-left: 20px; color: var(--paper-2); font-size: 14px; line-height: 1.7; }
+.ad-verdict li + li { margin-top: 4px; }
+.ad-verdict code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: #ffffff0f;
+  padding: 1.5px 6px;
+  border-radius: var(--r-xs);
+}
+
+.ad-verdict--blocked { border-color: #ffb17344; background: radial-gradient(120% 140% at 0% 0%, #ffb1731f, transparent 60%), #ffffff05; }
+.ad-verdict--blocked h1 { color: var(--amber); }
+.ad-verdict--ready { border-color: #6ee7b744; background: radial-gradient(120% 140% at 0% 0%, #6ee7b71f, transparent 60%), #ffffff05; }
+.ad-verdict--ready h1 { color: var(--mint); }
+
+.ad-stamp {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--paper-4);
+  letter-spacing: 0.06em;
+  margin: 0 0 26px;
+}
+
+/* ── layout ──────────────────────────────────────────────────────────────── */
+.ad-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.ad-card--wide { grid-column: 1 / -1; }
+.ad-card h2 {
+  font-size: 12px;
+  font-family: var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper-3);
+  margin: 0 0 14px;
+  font-weight: 500;
+}
+.ad-note { color: var(--paper-4); font-size: 12.5px; line-height: 1.55; margin: 12px 0 0; }
+
+@media (max-width: 860px) {
+  .ad-grid { grid-template-columns: minmax(0, 1fr); }
+  .ad-who { display: none; }
+}
+
+/* ── key/value rows ──────────────────────────────────────────────────────── */
+.ad-rows { display: flex; flex-direction: column; gap: 1px; }
+.ad-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13.5px;
+}
+.ad-row:last-child { border-bottom: 0; }
+.ad-row > span:first-child { color: var(--paper-3); }
+.ad-row > span:last-child {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--paper-1);
+  text-align: right;
+  word-break: break-word;
+}
+.ad-row .good { color: var(--mint); }
+.ad-row .bad { color: var(--rose); }
+.ad-row .warn { color: var(--amber); }
+.ad-row .dim { color: var(--paper-4); }
+
+/* ── chips and counts ────────────────────────────────────────────────────── */
+.ad-counts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.ad-count {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 9px 13px;
+  min-width: 92px;
+  background: #ffffff06;
+}
+.ad-count b {
+  display: block;
+  font-family: var(--mono);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--paper);
+  font-variant-numeric: tabular-nums;
+}
+.ad-count span {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--paper-4);
+}
+
+/* ── tables ──────────────────────────────────────────────────────────────── */
+.ad-tableWrap { overflow-x: auto; margin-top: 4px; }
+.ad-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ad-table th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper-4);
+  font-weight: 500;
+  padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.ad-table td {
+  padding: 9px 12px 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--paper-2);
+  vertical-align: top;
+}
+.ad-table tr:last-child td { border-bottom: 0; }
+.ad-table td.num { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ad-table td.email { color: var(--paper-1); word-break: break-all; }
+.ad-table .tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--line);
+  color: var(--paper-3);
+}
+.ad-table .tag--admin { border-color: #52d3ff55; color: var(--cyan-soft); }
+.ad-table .tag--paid { border-color: #6ee7b755; color: var(--mint); }
+.ad-table .tag--off { border-color: #ff8fc455; color: var(--rose); }
+.ad-table .tag--warn { border-color: #ffb17355; color: var(--amber); }
+.ad-empty { color: var(--paper-4); font-size: 13px; padding: 10px 0; }

@@ -9,15 +9,9 @@ import urllib.request
 import uuid
 from app.config import settings
 from app.database import database
-from app.billing import PRO_CREDITS
+from app.billing import PRO_CREDITS, TOPUPS
 
 API="https://api.paystack.co"
-TOPUPS={
-    "credits-200": (200, lambda: settings.paystack_topup_200_kobo),
-    "credits-500": (500, lambda: settings.paystack_topup_500_kobo),
-    "credits-1500": (1500, lambda: settings.paystack_topup_1500_kobo),
-    "credits-5000": (5000, lambda: settings.paystack_topup_5000_kobo),
-}
 
 
 def _request(path: str, payload: dict | None=None):
@@ -48,7 +42,11 @@ def checkout(user: dict, product: str):
     if kind == "subscription" and not plan: raise RuntimeError("Create the Paystack plan and configure its plan code first")
     metadata={"eidomira_user_id":user["id"],"product":product,"kind":kind}
     payload={"email":user["email"],"amount":amount,"currency":"NGN","reference":reference,
-             "callback_url":f"{settings.public_url.rstrip('/')}/?payment=return","metadata":metadata}
+             # Back to the studio, not the landing page. The landing page has no
+             # account context and no way to verify a reference, so a customer sent
+             # there paid and then waited for a webhook — which, unconfigured, never
+             # came. tests/test_credits.py pins this URL.
+             "callback_url":f"{settings.public_url.rstrip('/')}/app?payment=return","metadata":metadata}
     if plan: payload["plan"]=plan
     data=_request("/transaction/initialize",payload)
     database.execute("INSERT INTO payment_intents(reference,user_id,kind,product,amount_kobo,status,created_at,metadata_json) VALUES(?,?,?,?,?,?,?,?)",
@@ -63,7 +61,10 @@ def verify_transaction(reference: str, user_id: str | None=None):
     data=_request("/transaction/verify/"+reference)
     if data.get("status") == "success":
         _fulfil_charge(data)
-    return {"reference":reference,"status":data.get("status"),"amount":data.get("amount"),"currency":data.get("currency")}
+    return {"reference":reference,"status":data.get("status"),"amount":data.get("amount"),"currency":data.get("currency"),
+            # So the page can confirm the thing that was actually bought. "Live Pro is
+            # active" is the wrong sentence to show somebody who just bought credits.
+            "kind":intent["kind"] if intent else None,"product":intent["product"] if intent else None}
 
 
 def valid_signature(raw: bytes, signature: str | None):

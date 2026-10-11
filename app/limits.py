@@ -14,13 +14,19 @@ class SlidingWindowLimiter:
         self.events = defaultdict(deque)
         self.lock = threading.Lock()
 
-    def allow(self, key: str, limit: int, window: int):
+    def allow(self, key: str, limit: int, window: int, record: bool = True):
+        """Check the bucket, and by default count this call against the limit.
+
+        ``record=False`` answers "is there budget left?" without spending any, which
+        lets a caller throttle failures only — a correct sign-in should never count
+        against the sign-in budget.
+        """
         now = time.monotonic(); cutoff = now - window
         with self.lock:
             bucket = self.events[key]
             while bucket and bucket[0] < cutoff: bucket.popleft()
             if len(bucket) >= limit: return False, max(1, int(window - (now - bucket[0])))
-            bucket.append(now)
+            if record: bucket.append(now)
             if len(self.events) > 10000:
                 for old in [k for k,v in self.events.items() if not v or v[-1] < cutoff][:1000]: self.events.pop(old,None)
             return True, 0

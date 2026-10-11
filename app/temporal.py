@@ -36,7 +36,10 @@ class MotionAwareStabilizer:
         weight = (stable * self.strength)[..., None]
         blended = output_rgb.astype(np.float32) * (1.0 - weight)
         blended += self.previous_output.astype(np.float32) * weight
-        result = np.clip(blended, 0, 255).astype(np.uint8)
+        # Round, do not truncate: truncation biases every blended pixel down by up to one
+        # level, so a region returning to its true value approaches it asymptotically and
+        # then sticks one level short of it for good.
+        result = np.rint(np.clip(blended, 0, 255)).astype(np.uint8)
         self.previous_input = input_rgb.copy()
         self.previous_output = result.copy()
         return result

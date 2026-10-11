@@ -1,0 +1,25 @@
+# TLS for the live studio: Caddy, a real certificate, and a proxy that carries the signaling.
+#
+# Camera access needs a secure context anywhere except localhost, and the whole point of this
+# deployment is a live test from a phone — so https is not optional here. `--tls --domain
+# swap.example.com` writes the Caddyfile and starts this alongside the studio.
+#
+# What Caddy does *not* carry is the media. WebRTC media is UDP straight between the browser
+# and the studio (see docker-compose.yml for why the studio is on host networking), so a Caddy
+# that looks perfectly healthy can sit in front of a host that cannot deliver a single frame.
+# That is what `python -m tools.udp_probe` answers, and why it is in the deployment steps.
+services:
+  caddy:
+    image: caddy:2
+    # Host networking for the same reason the studio has it: this is the process that owns
+    # ports 80 and 443 on the machine, and it proxies to the studio on loopback.
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

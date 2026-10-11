@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Boost lab — on-device runtime check · Eidomira</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#050508">
+<link rel="icon" href="/static/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/static/tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ink-900); color: var(--paper); font-family: var(--sans); }
+  a { color: var(--cyan); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 72px; }
+  header h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(28px, 5vw, 44px); margin: 0 0 10px; letter-spacing: -.01em; }
+  .lede { color: var(--paper-3); max-width: 74ch; line-height: 1.6; margin: 0 0 18px; }
+  .honest {
+    border: 1px solid var(--amber); border-left-width: 3px; border-radius: var(--r-md);
+    background: rgba(255, 176, 32, .06); padding: 14px 16px; margin: 0 0 26px;
+    color: var(--paper-2); line-height: 1.6; font-size: 14.5px;
+  }
+  .honest b { color: var(--amber); }
+  .grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--ink-700); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 16px; }
+  .card h2 { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--paper-4); margin: 0 0 12px; font-weight: 600; }
+  .stage { position: relative; background: #000; border-radius: var(--r-md); overflow: hidden; aspect-ratio: 1 / 1; display: grid; place-items: center; }
+  .stage canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  .stage .empty { color: var(--paper-4); font-size: 13px; padding: 20px; text-align: center; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  button, select {
+    font: inherit; color: var(--paper); background: var(--ink-600); border: 1px solid var(--line-strong);
+    border-radius: var(--r-full); padding: 9px 16px; cursor: pointer;
+  }
+  button:hover { border-color: var(--violet); }
+  button.primary { background: var(--violet); border-color: var(--violet); color: #fff; }
+  button[aria-pressed="true"] { background: var(--violet); border-color: var(--violet); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .scale-group { display: inline-flex; gap: 0; }
+  .scale-group button { border-radius: 0; border-right-width: 0; }
+  .scale-group button:first-child { border-radius: var(--r-full) 0 0 var(--r-full); }
+  .scale-group button:last-child { border-radius: 0 var(--r-full) var(--r-full) 0; border-right-width: 1px; }
+  dl.readout { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; font-size: 13.5px; }
+  dl.readout dt { color: var(--paper-4); }
+  dl.readout dd { margin: 0; font-family: var(--mono); font-size: 12.5px; word-break: break-word; }
+  dd.good { color: var(--mint); } dd.warn { color: var(--amber); } dd.bad { color: var(--rose); }
+  table.times { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.times th, table.times td { text-align: right; padding: 6px 4px; border-bottom: 1px solid var(--line-soft); font-family: var(--mono); font-size: 12.5px; }
+  table.times th:first-child, table.times td:first-child { text-align: left; font-family: var(--sans); font-size: 13px; color: var(--paper-3); }
+  table.times tr:last-child td { border-bottom: 0; font-weight: 700; color: var(--paper); }
+  .log { font-family: var(--mono); font-size: 12px; color: var(--paper-3); background: var(--ink-800); border: 1px solid var(--line-soft); border-radius: var(--r-sm); padding: 10px; max-height: 168px; overflow: auto; white-space: pre-wrap; margin: 0; }
+  .foot { margin-top: 26px; color: var(--paper-4); font-size: 12.5px; line-height: 1.7; }
+  .foot code { font-family: var(--mono); color: var(--paper-3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Boost lab</h1>
+    <p class="lede">
+      The sub-pixel resolution recovery from <code>app/boost.py</code>, running in your browser
+      on your device, with its own timings. Point a camera at something detailed and watch the
+      difference between one pass and four.
+    </p>
+  </header>
+
+  <p class="honest">
+    <b>No swap weights here.</b> There is no inswapper file on this server, so this page cannot
+    and does not perform a face swap. It runs a small stand-in model through the same runtime a
+    real deployment would use, and measures the runtime and the boost <em>on your device</em>.
+    A real swapper is ~554&nbsp;MB and far slower than the stand-in — treat the timings as the
+    floor, not the estimate.
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Output <span id="passLabel" style="color:var(--paper-4);font-weight:400;letter-spacing:0;text-transform:none"></span></h2>
+      <div class="stage">
+        <canvas id="view" width="128" height="128"></canvas>
+        <div class="empty" id="empty">Press <b>Start</b> to measure. Nothing is uploaded,
+          nothing is recorded, and the camera stops the moment you press Stop.</div>
+      </div>
+      <div class="controls">
+        <button id="start" class="primary" type="button">Start</button>
+        <button id="stop" type="button" hidden>Stop &amp; release camera</button>
+        <button id="pattern" type="button">Use a test pattern instead</button>
+        <div class="scale-group" role="group" aria-label="Boost scale">
+          <button data-scale="1" type="button">1× (raw)</button>
+          <button data-scale="2" type="button" aria-pressed="true">2×</button>
+          <button data-scale="3" type="button">3×</button>
+        </div>
+      </div>
+      <p class="foot" id="hint">
+        The square is the aligned crop region. At 1× you are seeing what a 128-pixel model can
+        carry; at 2× and 3× the phases are sampled between those pixels and interleaved.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>This device</h2>
+      <dl class="readout" id="device"></dl>
+    </div>
+
+    <div class="card">
+      <h2>Per frame</h2>
+      <table class="times" id="times"></table>
+      <p class="foot">Averaged over the last 30 frames. The crop sampling and the interleave are
+        the boost's own cost; the inference column is the stand-in model, not a swapper.</p>
+    </div>
+
+    <div class="card">
+      <h2>Log</h2>
+      <pre class="log" id="log"></pre>
+    </div>
+  </div>
+
+  <p class="foot">
+    <a href="/">&larr; Back to Eidomira</a> · the algorithm and its limits are documented in
+    <code>app/boost.py</code>, and the browser and Python implementations are held together by
+    <code>tests/test_boost_parity.py</code>.
+  </p>
+</div>
+<script type="module" src="/static/lab/boost-lab.js"></script>
+</body>
+</html>

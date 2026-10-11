@@ -54,6 +54,113 @@ A clean production-oriented rebuild for consensual, self-only real-time face tra
 - Optional InsightFace/InSwapper adapter
 - NVIDIA Docker and RunPod deployment configuration
 
+## Public landing page
+
+`static/index.html` is the marketing page. It is self-contained, dependency-free, and
+ships as static files: `landing.css` (landing sections + motion), `landing.js`
+(interactions), `fonts.css` + `static/fonts/*.woff2` (self-hosted Instrument Serif,
+Inter Tight, JetBrains Mono — no third-party requests, so `style-src 'self'` holds).
+
+### Stylesheet layout
+
+| File | Owns |
+| --- | --- |
+| `tokens.css` | Design tokens, reset, buttons, pills, reveal utilities, auth modal. Shared. |
+| `landing.css` | Public page: nav, hero, gallery, steps, pricing, FAQ, footer. |
+| `studio.css` | Private workbench, telemetry, calls dock, OBS clean output. |
+
+`tokens.css` is the only place tokens are declared; both page sheets consume them with
+`var()` and tests forbid `:root` in the page sheets, so the public page and the private
+studio cannot drift. The studio page class is `body.workspace` (not `.studio`) because
+`.studio` was already the two-column video grid inside it.
+
+Design notes:
+
+- Dark editorial art direction: 8px baseline rhythm, one accent gradient (violet → cyan),
+  serif italic display contrast against a tight grotesk.
+- Motion: word-by-word hero reveal, rAF scroll progress, eased cursor spotlight,
+  pointer tilt on specimens, image-wipe on hover, sticky scroll-spy steps, sliding
+  toolkit tabs, drag/arrow use-case rail, count-up stats, height-animated FAQ,
+  magnetic primary buttons, live canvas signal trace in the hero monitor.
+- Every animation is disabled or reduced under `prefers-reduced-motion`, the hero
+  gallery is illustrative (no real faces), and the page states plainly that it is a
+  preview rather than a live feed.
+- The hero monitor is a styled illustration of the Studio; telemetry values are
+  illustrative, not measured.
+
+`/` and `/static/*` are embeddable (no session state, no credentials) so the marketing
+page can be hosted in previews, docs and product embeds. `/app` and `/api/*` keep
+`X-Frame-Options: SAMEORIGIN` and `frame-ancestors 'self'`.
+
+## Studio (`/app`)
+
+The private workbench was previously a second marketing site bolted onto the tool: its own
+hero, feature grid, workflow, benefit tabs and pricing section, on the old pale-blue skin.
+It is now just the workbench, in the same design system as the public page, with the
+duplicated marketing content removed (the landing page owns that job).
+
+Kept intact: every id `app.js` queries — camera, output, liveness, recording, telemetry,
+calls, account and billing controls — plus the `.stage` / `.stage.output` / `.viewport`
+structure that OBS clean mode depends on, and the `.hasImage`, `.recording` and `.active`
+class hooks `app.js` toggles. `tests/test_studio_contract.py` enforces all of it.
+
+Because camera access is granted to top-level pages only, the studio is not embeddable:
+`/app` keeps `SAMEORIGIN` and `frame-ancestors 'self'`.
+
+## On-device demo (`/#try`)
+
+The "Your camera. Your own device." section runs a real MediaPipe FaceLandmarker in the
+visitor's browser against their own webcam and draws the 478-point mesh, contours, iris
+points and a tracking reticle, plus live blink/smile meters from the blendshape output.
+
+- Detection happens entirely client-side; no frame, embedding or landmark leaves the tab.
+  Nothing is fetched until the visitor clicks enable, and the camera track is released on
+  stop, on engine failure, and on page hide.
+- The engine is a pinned CDN build (`@mediapipe/tasks-vision`, see `ENGINE_CANDIDATES` in
+  `landing.js`) with a second version as fallback. The model is served from this repo by
+  `GET /models/face_landmarker.task`.
+- `GET /models/face_landmarker.task` is an explicit single-file route on purpose: a
+  `StaticFiles` mount over `models/` would also expose licensed weights such as
+  `inswapper_128.onnx`.
+- CSP carries `'wasm-unsafe-eval'` (WebAssembly compilation only, not JS `eval`) and the
+  CDN in `connect-src`/`worker-src`, because the wasm runtime is fetched at run time.
+- Camera permission is a top-level-only capability, so inside an embedded frame the demo
+  detects the framing and offers an "open in a new tab" link instead of failing silently.
+
+## The on-device runtime lab (`/lab`)
+
+One question: **can the swap run in the visitor's browser instead of on this server?** The
+page is public, unauthenticated and linked from nowhere — open it by URL, on the phone you
+actually carry.
+
+It measures, on the device in front of it: which ONNX execution providers the browser
+really offers (WebGPU with a WASM fallback) and the adapter the browser reports;
+`navigator.deviceMemory`, `hardwareConcurrency` and the JS heap; the cost of one boost
+frame split into crop sampling, tensor packing, inference, unpacking and the interleave,
+averaged over 30 frames at 1×, 2× and 3×; and two costs that are easy not to notice — the
+`getImageData` readback per pass, and the fact that multi-threaded ONNX Runtime needs
+cross-origin isolation this application does not send, so the runtime is held to one thread
+and the page says so.
+
+**The model it runs is not a face swapper.** `models/` has never held swap weights and the
+real one is 554 MB, so the lab runs a 277-byte stand-in: one depthwise 3×3 convolution,
+close enough to the identity that the only resolution loss left in the picture is the
+128-pixel crop grid the boost exists to undo. Switch 1×/2×/3× and the detail comes back.
+The arithmetic is genuinely ONNX Runtime's; the model is not. Every number it prints is a
+floor, and the page says that too. Delete the page and the repository loses nothing but the
+demonstration.
+
+Two implementations of one algorithm drift, and a browser page cannot be run by this test
+suite. So `tests/test_boost_parity.py` generates fixtures from the Python implementation and
+`tests/boost_parity.mjs` asserts the JavaScript reproduces the sampled rectangles exactly and
+the final canvas byte for byte — followed by a sabotage case that corrupts one pass buffer
+and requires the checker to reject it, because a parity test that cannot fail proves
+nothing.
+
+`onnxruntime-web` is loaded from jsdelivr, pinned by version and covered by the CSP.
+Vendoring it was considered and not done: the bundle is 116 KB, but the wasm binary beside
+it is 26 MB, which is a larger commit than this repository.
+
 ## Local UI/transport test
 
 ```bash
@@ -75,9 +182,390 @@ docker compose up --build
 
 InsightFace code and pretrained weights have different licenses. Pretrained InSwapper weights are non-commercial unless separately licensed by their owner. Confirm licensing before deployment.
 
+`tools/fetch_models.py` fetches the three artefacts the stack wants and will **not** download
+the non-commercial swap weights without an explicit `--accept-licence`; it records a sha256 per
+file on the first fetch and refuses a source that later returns different bytes. The parser and
+the restorer (OpenRAIL-AS and Apache-2.0 respectively) need no such permission. What each one
+is, what it costs, what the host needs and the order to do it in:
+[`docs/swap-requirements.md`](docs/swap-requirements.md), and the licence request itself is
+drafted in [`docs/insightface-licence-request.md`](docs/insightface-licence-request.md).
+
+Before any of that is bought, the neural path can be exercised with stand-in graphs:
+
+```bash
+pip install -r requirements-neural.txt
+python -m tools.stand_in_models --directory models/standin
+python -m pytest tests/test_neural_path.py -q
+```
+
+**Where to run it** is a decision with a hard constraint in it: the server is a WebRTC peer
+(`app/rtc.py`, aiortc) and the media is SRTP over **UDP**, on an ephemeral port aiortc does not
+let you pin — so the host has to be a plain VM with inbound UDP, not a serverless function and
+not RunPod Pods (their docs: *"Pods do not support UDP connections"*). `docker-compose.yml`
+therefore uses host networking. Verify any candidate host in one minute before paying for it:
+
+```bash
+python -m tools.udp_probe serve --port 34789 --seconds 60   # on the host
+python -m tools.udp_probe send --host <the host> --port 34789   # from anywhere else
+```
+
+No card at all? `tools/gpu_validation.py` measures the neural path on a free Kaggle or Colab
+GPU — provider, per-stage timings, and an extrapolated frame budget — so the host question is
+answered before anything is bought. [`docs/kaggle-gpu.md`](docs/kaggle-gpu.md) has the
+step-by-step and the four ways it goes wrong; `notebooks/kaggle-validation.ipynb` is
+ready to import:
+
+```python
+!git clone -q -b arena/178efbef-eidomira https://github.com/Phillipjr9/eidomira.git
+%cd eidomira
+!pip uninstall -y -q onnxruntime onnxruntime-gpu
+!pip install -q onnxruntime-gpu onnx insightface
+!python tools/gpu_validation.py
+```
+
+[`docs/elastic-compute-plan.md`](docs/elastic-compute-plan.md) has the options, the dated
+prices, the regions worth picking for a Lagos user base, and the order of operations. On the
+host itself it is one command:
+
+```bash
+python -m tools.deploy_vm --print --domain swap.example.com --tls   # plan only
+python -m tools.deploy_vm --domain swap.example.com --tls
+```
+
+It preflights (Docker, a GPU the daemon can see, the licensed models, a free port) and writes
+nothing until that passes; generates `.env` with a real 47-character `STUDIO_AUTH_SECRET` and
+never rewrites it; writes a `Caddyfile` and starts Caddy, because camera access needs https
+away from localhost; starts compose with host networking; then polls `/api/health` and
+**fails** if the engine is not `inswapper` or the provider is not accelerated — a CPU fallback
+runs fine and is many times too slow, which is the exact mistake worth catching. It never
+installs system packages: when Docker or the NVIDIA Container Toolkit is missing it names what
+to install and stops.
+
+`tools/stand_in_models.py` writes ONNX graphs with the exact shapes, names and input order the
+adapters require — no trained weights and no quality claim. They prove the plumbing executes:
+the compositor builds a mask and leaves its occluders alone, the restorer enhances without
+faulting, and the boost interleaves real inference passes onto one canvas. `tests/test_neural_path.py`
+asserts exactly that, including that pixels the mask leaves at zero survive the blend byte for
+byte.
+
+### Execution providers
+
+The adapter does not assume CUDA. At startup `app/providers.py` asks ONNX Runtime
+which providers the host exposes, then orders them by expected throughput — TensorRT,
+CUDA, ROCm, MIGraphX, DirectML, CoreML, OpenVINO — and keeps CPU last as the fallback.
+The resolved list is reported by `GET /api/health` as `provider`, `providers` and
+`accelerated`, and shown in the studio status line, so a host that quietly fell back to
+CPU is visible rather than merely slow.
+
+| Variable | Meaning |
+| --- | --- |
+| `EIDOMIRA_PROVIDERS` | Comma-separated override, e.g. `cuda,cpu` or `directml`. Unknown or unavailable names fall back to automatic ordering. |
+| `EIDOMIRA_TENSORRT` | Set to `1` to allow TensorRT. Off by default: it builds an engine on first use, which can take minutes and is the wrong default for a request path. |
+
+When CUDA is absent the InsightFace detector is prepared with `ctx_id=-1`, because a
+non-negative id asks for a GPU context the host does not have.
+
+### What the live frame budget is spent on
+
+The adaptive controller holds the frame pipeline at a latency target — 32 / 45 / 65 ms for
+the speed / balanced / quality presets, in `app/adaptive.py` — by adjusting inference
+resolution. It measures the **whole frame**: engine work, stabilisation and frame
+conversion. Feeding it only the engine's own figure let the pipeline run about a third over
+budget without the controller noticing.
+
+Telemetry carries both numbers, and the studio panel shows them as `Latency` and `Frame`:
+
+| Field | Meaning |
+| --- | --- |
+| `inference_ms` | The engine's own work: detection, swap, optional parser. |
+| `frame_ms` | Everything that frame cost, which is what the controller acts on. |
+
+The gap between them is worth watching. On a 2-vCPU cloud instance the stabiliser alone
+measured **14.9 ms at 960×540 — 33% of the 45 ms budget** (8.1 ms at 768×432, 2.5 ms at the
+512×288 floor). Frame conversion and colour conversion are negligible by comparison, around
+0.1 ms.
+
+Liveness and verification frames are deliberately excluded from the controller's samples.
+They cost a different, one-off amount, and letting them in would shrink quality for the rest
+of the session.
+
+None of this requires a GPU. The CPU fallback runs the full pipeline; what changes is the
+resolution and frame rate it can sustain. Offline photo and batch work is comfortable on
+CPU. The live path is budgeted for an accelerator, and "accelerator" need not mean external:
+the registry above resolves a local GPU, an integrated one through DirectML, Apple Silicon
+through CoreML, or a hosted GPU identically.
+
+Two things to know before sizing hardware. There are **no face-swap weights in this
+repository** — `models/` holds only the MediaPipe bundle behind the on-device demo — and the
+INSwapper weights are non-commercial, so what may be shipped is a licensing question that
+comes before any hardware decision.
+
+### Measuring output quality
+
+Whether a composite looks real is not something to assert in a README. It is something to
+measure, and `tools/quality_report.py` does, from frame pairs alone:
+
+```bash
+python -m tools.quality_report --pair original.png swapped.png
+python -m tools.quality_report --pair a1.png b1.png --pair a2.png b2.png --json
+```
+
+| Signal | What it catches |
+| --- | --- |
+| `seam_ratio` | A discontinuity on the edge of the composited region. 1.0 means the boundary is no sharper than the texture it sits in. |
+| `colour` | Distance between the composited region's colour and the skin immediately around it — a face pasted from a differently lit source. |
+| `flicker` | Frame-to-frame instability of the region, *net of real motion*, because motion moves the original frames too. Give it two or more pairs to get this. |
+
+The metrics are themselves tested against cases with known answers: a known 25-level colour
+offset comes back as a distance of 43.9 (25×√3), a hard cut scores roughly 5× the seam of a
+feathered one, and added jitter shows up while a travelling subject does not.
+
+Three findings from building it, all silent in the old code:
+
+- **`PROTECTED_OCCLUDERS` was declared and never read.** The morphological close that removes
+  mask speckle also filled straight over parsed glasses, hair and jewellery, compositing the
+  swapped face on top of them.
+- **`parser_include_ears: false` did nothing** for the same reason: the close refilled the ears.
+- **A parser emitting probabilities or single-channel logits produced an empty mask.**
+  `astype(np.uint8)` collapses values in `[0, 1]` to zero and wraps negative logits into
+  garbage class ids. Nothing raised; `blend()` simply returned the original frame and the
+  swap silently did nothing.
+
+Blending also rounded where it used to truncate. Truncation biased every blended pixel down by
+up to one level, which the feedback in the temporal stabiliser turned into a residue that
+never cleared — a frame returning to its true value settled one level short of it and stayed
+there. And the stabiliser is now reset on any frame that did not actually produce a swapped
+face, instead of blending the last swapped face back over it.
+
+None of this has been seen running against a real swap, because there are no weights to run
+it against. The metrics exist so that when there are, the claim is checked rather than
+believed.
+
+### Closing the realism gap
+
+The gap between Eidomira's raw swap and the best tools is **not the swap model**, and it is
+worth being precise about that, because the obvious move — find a stronger swapper — leads
+nowhere. `inswapper` already leads the one-shot class on identity retrieval (93.52 against
+SimSwap's 92.25 and DeepFaceLab's 89.56) and wins Attribute, Anti-Occlusion and Fidelity
+too. Its characteristic failure is that it *drifts toward the target face instead of
+producing obvious artifacts*, so a raw result reads as soft and slightly wrong rather than
+visibly broken.
+
+The difference is the stack around it. Every production pipeline converges on the same one:
+
+```
+detect → swap at 128 → pixel-boost to 256/512 → restoration at 0.7–0.8 visibility
+       → occluder-preserving mask → LAB tone transfer → soft-mask paste
+```
+
+`inswapper_128` emits a 128×128 face, which is why a raw swap looks soft until restoration
+is stacked on top. Two parts of that stack are now implemented:
+
+| Stage | Where | Effect (synthetic frames) |
+| --- | --- | --- |
+| LAB tone transfer | `app/enhance.py` → `transfer_tone()` | A face lit 25 levels from its room moves from 146 to **165** against a surround of 169; colour distance **32.9 → 7.2**. Symmetric in the other direction, and a face that already matches moves **0.04** levels. |
+| Restoration at partial visibility | `app/enhance.py` → `FaceRestorer` | **Inactive.** Starts only when a model file is present. |
+
+Restoration is deliberately a **pluggable file** rather than a hardcoded dependency, and
+which file it may be is a licensing question rather than a technical one:
+
+| Model | Licence | Shippable in a paid product |
+| --- | --- | --- |
+| GFPGAN v1.4 | Apache-2.0 | **yes** |
+| GPEN-BFR-512 | Apache-2.0 code | yes, verify the weights |
+| CodeFormer | NTU S-Lab License 1.0 | **no** — non-commercial; the strongest on paper, and not usable here |
+| inswapper_128 | non-commercial research (code MIT) | not as-is — InsightFace **sells** a commercial licence |
+
+Code and model licences have to be checked separately: InsightFace's code is MIT while its
+pre-trained models are not. `docs/quality-and-licensing.md` records the full inventory and
+the sources behind it.
+
+Settings, all optional:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `STUDIO_TONE_TRANSFER_STRENGTH` | `1.0` | How far to pull the swapped face into the target's lighting. `0` disables it. |
+| `STUDIO_RESTORATION_MODEL_PATH` | `models/gfpgan_1.4.onnx` | Restoration model. Absent file means the stage is skipped, not an error. |
+| `STUDIO_RESTORATION_VISIBILITY` | `0.75` | Blend strength for restoration. Full strength looks airbrushed. |
+
+Tone transfer's statistics are taken from inside the feather rather than across it: the
+transition ring is part target and part source, so including it pulls both sets of
+statistics toward each other and quietly weakens the correction. The gain is clamped, which
+matters more than it sounds — an unbounded gain matches the reference's *contrast*, so a
+low-contrast face carrying sensor grain gets its grain stretched to full texture strength.
+On the synthetic case that is a 9.3× contrast increase without the clamp and 0.93× with it.
+
+#### Pixel-boost: getting back what the 128 crop threw away
+
+`inswapper` works on a fixed 128×128 aligned crop, so a face that is 200 pixels across in
+the frame is sampled at 0.64× and everything finer than that is gone before the result is
+ever pasted back. That is what "raw swaps look soft" means.
+
+`app/boost.py` recovers it without another model. Nudge the crop by half a pixel, run the
+swapper again, and the second pass sees a *different sampling* of the same face. `scale`²
+passes at the sub-pixel offsets of a `scale × scale` grid carry exactly as many samples as
+a `scale × 128` canvas — four 128-squares are one 256-square, sample for sample — so the
+canvas is built by interleaving them. Not averaging: averaging means upscaling and blending
+the interpolated results, which measured *worse than a single pass* because the
+interpolation cost more detail than the phases added.
+
+Measured through the engine on a 200-pixel face whose detail is at the resolution limit:
+
+| `STUDIO_SWAP_PIXEL_BOOST` | passes | face detail recovered | error against the real face |
+|---|---|---|---|
+| 1 (default) | 1 | 44 of 7744 | 30.1 |
+| 2 | 4 | 1695 | 15.1 |
+| 3 | 9 | 3980 | 14.9 |
+
+The tests assert the stronger statement, as an identity rather than a similarity: with a
+resolution-limited stand-in, `scale`² passes are *bit-for-bit* the aligned crop rendered at
+`scale × 128`. That is a resolution recovery, not a sharpening filter.
+
+**What is not proven:** a real swapper is generative, and its output is not a plain
+resampling of its crop, so the gain will be smaller than the table above. Two things are
+known to limit it. The interleave gives every output pixel exactly one pass's sample, so it
+cannot average a pass's own noise away — measured: output noise equals input noise. And
+against a face *smaller* than the crop there is nothing to recover, so the engine skips the
+boost entirely rather than pay four passes for it; a test holds that.
+
+It is off by default. Turning it on runs the swap `scale`² times per frame, which is a
+different latency decision on a CPU box than on a GPU one, and the path has never executed
+against a real model — `insightface` is not installed here and there are no weights. The
+three assumptions it makes about that library are listed on `_boosted_swap`, and a failure
+falls back to one pass for the rest of the session rather than failing every frame.
+
+Still missing from the stack, in the order they block a launch: **trained swap weights in
+`models/`** and the **inswapper commercial licence**. Until both exist, nothing here has
+been run against a real swap, no quality claim is a measurement, and no parity with any
+competitor is claimed.
+
+### The lab: can this run in the browser instead of on the server?
+
+`/lab` answers that on your own device rather than in an argument. It runs the boost from
+`app/boost.py` — ported to JavaScript in `static/boost.js` — on your phone or laptop, through
+the same ONNX runtime a real browser deployment would use, and reports what it cost.
+
+There are no swap weights on the server, so the model it runs is a **0.3 KB stand-in**: one
+depthwise convolution, close enough to the identity that the only resolution loss in the
+picture is the 128-pixel crop grid, which is exactly what the boost undoes. That makes the
+boost's effect visible — switch between 1× and 3× and watch the detail come back — while the
+runtime path is genuinely exercised. A real swapper is ~554 MB and orders of magnitude slower,
+so every number the lab reports is a floor.
+
+It measures, per frame: the crop sampling, the tensor pack, the inference, the unpack, and the
+interleave; averaged over 30 frames, with the device's own memory class, CPU threads, GPU
+adapter and WebGPU availability reported beside them. Two costs that are easy to hide are on
+screen instead: the `getImageData` readback per pass, and the fact that multi-threaded wasm
+needs cross-origin isolation this application does not send — the lab asks for one thread and
+says so.
+
+Two implementations of one algorithm drift, and the browser one cannot be run by the test
+suite. So `tests/test_boost_parity.py` generates fixtures *from the Python*, and
+`tests/boost_parity.mjs` asserts the JavaScript reproduces the sampled rectangles **and** the
+canvas byte for byte. A second test corrupts one byte of a pass buffer and asserts the checker
+rejects it, because a parity test that cannot fail proves nothing.
+
+The landing page's hero no longer shows a sample result. It used to present a stock image as
+"Eidomira output" — a result this repository cannot produce, since there are no swap weights
+in `models/`. Real captures go in its place; `landing.css` already styles `.pane__img` for
+them.
+
+### The trainer: watching for defects, and tuning what it may
+
+`app/trainer.py` watches every sampled frame of a live session. **It cannot retrain the
+swap model** — there are no weights in `models/`, no training data, and no accelerator in
+this loop — so anything claiming otherwise would be inventing numbers. What it does is real:
+
+| | |
+| --- | --- |
+| **Monitor** | Every sampled frame is scored with the same metrics as `tools/quality_report.py`, and each defect is recorded with the measurement that produced it: a colour mismatch, a visible edge, a frame that claimed a face and changed nothing. |
+| **Tune** | When a measured defect has a knob that addresses it, it moves one step, then *verifies* the change against later samples and reverts it if the metric did not improve. A knob reverted twice is locked for the session, and a reverted knob gets a cooldown — otherwise the trainer re-applies the change it just disproved and spends the session oscillating. |
+| **Repair** | A stage that reports a fault is switched off rather than run on every remaining frame, and recorded as a defect. A parser that keeps returning no face pixels falls back to the box mask rather than compositing nothing. |
+| **Report** | `reports/<session>-<time>.md`: what was wrong, what changed and why, what was tried and reverted with the numbers, what is locked, and what no setting fixed. `reports/example-session-report.md` is a real one, from a session where the engine leaves the swapped face 30 levels dark. |
+
+The panel in the studio (`/app`) shows the same thing live, over the telemetry channel.
+
+#### What it is allowed to touch
+
+Bounds live in `app/knobs.py`, shared by the live trainer and the offline one, because an
+unbounded search for "better" always finds a setting that scores well and looks wrong.
+
+| Knob | Range | Why the bound is there |
+| --- | --- | --- |
+| `tone_transfer_strength` | 0 – 1.0 | Past 1.0 the correction stops matching the target's light and starts replacing the swapped face with it. |
+| `restoration_visibility` | 0 – 1.0 | Full strength is reported to look airbrushed. |
+| `parser_feather` | .01 – .08 | Lower and the composited edge is a visible line; higher and the mask stops protecting hair and glasses. |
+
+`temporal_strength`, `verification_threshold`, `max_frame_width` and the rest are listed in
+`FIXED` with the reason, so "it did not touch this" is a decision on record: temporal
+strength already belongs to the adaptive controller, and a second controller moving it is
+how the two would fight.
+
+Values travel to the engine **per call**, never written to `settings`, because the engine is
+shared by every live session and one session's tuning must not change another's output.
+
+#### Why measurement is sampled
+
+A full-resolution quality sample costs **64 ms at 960×738** on this hardware — more than the
+entire 45 ms frame budget. So measurement happens on a frame downscaled to 256 px (5 ms),
+only every 30th frame, and never on a frame that was already over budget: spending 5 ms
+measuring a frame that is already late makes the lateness worse.
+
+#### The offline trainer
+
+`tools/train_defaults.py` replays frames and searches the same three knobs, writing what it
+measured to `data/tuned_defaults.json`, which `app/config.py` reads at startup and clamps.
+Delete the file to go back to the configured defaults.
+
+```bash
+python -m tools.train_defaults --synthetic 2          # generated cases with known defects
+python -m tools.train_defaults --pairs ./captures     # real saved *_original/_swapped pairs
+python -m tools.train_defaults --pairs ./captures --json --no-write
+```
+
+Generated cases prove the search works. They cannot tell you what *your* sessions get
+wrong, which is the question worth asking — so set `STUDIO_TRAINER_CAPTURE_LIMIT=200` and
+the trainer writes every measured frame to `captures/` as the pair the tool reads. Then:
+
+```bash
+python -m tools.train_defaults --pairs captures       # searches the defects that happened
+```
+
+That loop is the one that matters: the live session records its own failures, and the
+offline search answers whether a different setting would have avoided them. Nothing is
+captured by default — two PNG encodes cost more than the measurement itself, and the
+frames contain faces, so turning it on is a deliberate act with a deliberate directory.
+
+It refuses to do two things, both of which would be easy and both of which would be wrong:
+
+- **Score a knob it cannot evaluate.** `restoration_visibility` needs a restoration model to
+  re-run; with none installed it says so rather than inventing a value.
+- **Report its own noise as an improvement.** A change is only recommended if it beats the
+  current value by 15%, and never at a bound: these metrics are one-sided — nothing in them
+  penalises over-correcting a face or over-softening a mask — so a preference for the
+  extreme is not evidence. Each recommendation prints what that metric cannot see.
+
+Both rules exist because the first version broke both. Scored over a region derived from the
+frames being compared, the tone curve came out non-monotonic (0.6 scored 4.9 and 0.7 scored
+9.3, which no smooth blend parameter can do); pinning the region per pair made it monotone
+again. The margin and the bound rule came from the same failure in miniature: the search
+wanted to move `tone_transfer_strength` from 1.0 to 0.9 for a 10% gain, and `parser_feather`
+to its maximum.
+
+On generated pairs the search now finds nothing worth changing, which is the correct answer
+for data with no unknown in it — and it does find a genuinely wrong default: with
+`STUDIO_TONE_TRANSFER_STRENGTH=0.2` it recommends 0.9, an 89% improvement.
+
 ## Important MVP limitation
 
 Direct peer-to-worker WebRTC is implemented for the MVP. Before a high-concurrency launch, add a production TURN service and regional SFU/gateway rather than terminating every public peer directly on GPU workers. The current scheduler deliberately drops stale frames instead of accumulating latency, but GPU admission control is still required for multiple simultaneous neural sessions.
+
+## Third-party code review
+
+See [`docs/third-party-review.md`](docs/third-party-review.md) before adding code borrowed
+from another repository. It records reviewed repos with a verdict, and includes the checks
+to run first — starting with reading build files, since hooks like MSBuild `PreBuild` run
+on build and can execute anything.
 
 ## Safety boundary
 
@@ -96,3 +584,311 @@ Eidomira includes verified-email registration, Argon2id passwords, signed access
 Set `STUDIO_PUBLIC_URL` and SMTP values from `.env.example`. Without SMTP, development verification URLs print to server logs; this must not be used in production.
 
 Endpoints: `POST /api/auth/register`, `/api/auth/login`, `/api/auth/verify-email`, `/api/auth/resend-verification`; `GET /api/plans`, `/api/billing/account`; `POST /api/billing/quote`.
+
+### Seeing and buying credits
+
+The studio's side column carries a **Credits** panel: the remaining balance, split into
+plan credits and top-up credits, what has been used, when the top-up expires, the packs
+with their prices, and the account's own ledger of movements. The header chip shows the
+same total, and **Buy credits** in the account bar jumps to the panel.
+
+Every price in that panel comes from the server. The packs used to be four `<option>` lines
+typed into the markup with the naira prices in them, next to a kobo amount in settings that
+decided the actual charge — two facts that agreed by luck. They now come from one
+definition (`TOPUPS` in `app/billing.py`, which `app/paystack.py` imports) and
+`tests/test_credits.py` asserts that the price on the button and the amount Paystack is
+asked for are the same number.
+
+A purchase runs the length of the flow:
+
+1. `POST /api/payments/paystack/checkout` records a `payment_intents` row and returns
+   Paystack's authorization URL. It requires a signed-in account with a **verified**
+   address, because Paystack is handed that address.
+2. Paystack takes the payment and returns the customer to
+   `<public_url>/app?payment=return&reference=…`.
+3. The studio verifies the reference, the credits land in the ledger, and the panel
+   refreshes. Paystack's `charge.success` webhook is the second path to the same place.
+
+The credits are granted **once**, however many times Paystack repeats itself: the ledger
+row is keyed on `paystack:<reference>`, so the return trip and the webhook cannot both pay.
+An amount that does not match the intent, a charge that did not succeed, and a currency
+that is not NGN are all refused rather than credited.
+
+Two things were wrong before this and are worth naming, because both cost money:
+
+- **Checkout sent the payer to the landing page.** The callback was `/?payment=return`,
+  and only `/app` knew how to verify a reference — so on an installation without a
+  configured webhook, which is every installation until somebody configures one, the money
+  arrived and the balance never moved. The callback now returns to `/app`, and a test pins
+  it;
+- **Nothing showed the customer their balance.** There was a number in the header and a
+  `<select>` of packs; no breakdown, no expiry, no history.
+
+Switching it on needs `STUDIO_PAYSTACK_SECRET_KEY` and the webhook URL
+(`<public_url>/api/payments/paystack/webhook`) registered in the Paystack dashboard. Until
+then the panel says card payments are not switched on rather than offering four buttons
+that fail, and checkout answers `503 Paystack is not configured`. **No live Paystack call
+has been made from this repository** — the provider is faked in the tests and the amount it
+receives is asserted, so a pricing change that never reached checkout still fails there.
+
+### The owner console (`/admin`)
+
+Eidomira has one privileged role, and it is created on the server rather than through the
+site. Register an account like anyone else, then promote it:
+
+```
+python -m tools.grant_admin --list               # every account and its role
+python -m tools.grant_admin you@example.com      # grant administrator
+python -m tools.grant_admin --demote you@example.com
+```
+
+The tool refuses to demote the last administrator, refuses to invent an account that has
+not registered, and prints the database it acted on, because promoting an account on the
+wrong database looks exactly like a command that worked. Administrators see an **Owner
+console** link in the studio's account bar; nobody else is told the page exists.
+
+`/admin` reports what the installation *is* rather than what it is configured to be:
+
+- **a verdict, first** — "this installation can run a neural face swap" or "cannot", with
+  each reason listed. It is computed from the filesystem and the installed runtimes, so a
+  deployment whose owner believes it is swapping faces is told otherwise, in words,
+  before anything else on the page;
+- engine, execution provider and hardware acceleration, as `/api/health` reports them;
+- model files in `models/` with their sizes, and which of `onnxruntime`, `insightface`
+  and `torch` are importable;
+- accounts: address, role, plan, credits, credits used, when they joined, and whether
+  they are verified or disabled;
+- payments: Paystack intents by status, amounts in kobo, and whether any delivered
+  webhook is still unprocessed;
+- live sessions and WebRTC peers against their capacity;
+- security posture — whether the session signing key is still the one from this
+  repository, whether accounts are required, the limits, and which integrations are
+  configured;
+- the trainer's written reports, newest first.
+
+Three things about it are deliberate. **The role is read from the database on every
+request, never from the token**, so demoting somebody takes effect on their next click
+rather than when their token expires, and a forged token claiming a role does nothing.
+**It is read-only**: suspending an account or refunding a payment is a second product with
+a second threat model, and this one exists to answer questions. And **it renders nothing
+with `innerHTML`** — every value on the page comes from the database and some of it is text
+a user chose, so the page builds nodes instead. `tests/test_admin.py` holds all three,
+including a check that the payload never contains a password hash, a token hash, or a
+signing key.
+
+### The studio's three sections
+
+`/app` is organised into three sections, addressed by the URL hash so a link to one is
+shareable and the back button works:
+
+* **Studio** (`#studio`) — the workbench: the 01/02/03 strip, the identity column, the camera
+  and transformed canvases, session telemetry, the quality trainer and the call dock.
+* **Billing** (`#billing`) — the balance and what it is made of, the plan with its real prices,
+  the credit packs, and this account's own ledger. Every figure comes from
+  `/api/billing/account`, which is the same payload that decides what Paystack is asked to
+  charge. Choosing a pack or a plan sends you to Paystack's own checkout and back.
+* **Settings** (`#settings`) — the account (email, verification, role), security (change
+  password, when this session ends, sign out), preferences (quality preset, camera and
+  microphone, reduced motion — stored in this browser, deliberately not account settings),
+  privacy and data, and an engine/diagnostics card that reports what the backend actually is.
+
+The rule the layout is built on is that a thing is rendered in exactly one place. The balance
+is on Billing and the top bar only links to it; the plan is on Billing and Settings links to
+it; no price is typed into the page or the script, and a test rejects one that is.
+
+Two bugs came out of building it. The packs used to be hidden entirely when Paystack was not
+configured, so a deployment without a payment key had no payment UI at all and looked like a
+missing feature rather than a missing setting — they are now always shown, disabled, with the
+reason and the setting that fixes it. And a token that the server no longer accepts (the
+account was removed, or the database was rebuilt) made every authenticated call answer 401
+while the page carried on looking signed in: the balance never filled in and checkout did
+nothing. A 401 on a request that carried a token now ends that session and returns the visitor
+to the sign-in card.
+
+### Sign-in behaviour worth knowing
+
+**Unknown addresses cost the same as wrong passwords.** `authenticate()` used to return
+before hashing anything when an address had no account, so the response time alone
+revealed whether a given email was registered — 96 ms against 2 ms over HTTP, both
+answering an identical 401. It now spends an equivalent Argon2 verification against a
+throwaway hash. Disabled accounts take the same path, so they cannot be told apart from
+unregistered ones either.
+
+**Failures are throttled per account, not just per address.** The middleware limit keys on
+the peer address as seen directly, so behind a proxy uvicorn does not trust every caller
+shares one bucket. `login_limit_per_hour` (default 30) is a second limit keyed on a digest
+of the email, which keeps working in that case and never holds an address in memory. Only
+failures count against it, so signing in normally never locks anyone out.
+
+The cost of that design, recorded rather than discovered later: once an account's failure
+budget is spent, **even the correct password is refused until the window passes**, and
+someone who knows an address can deliberately trigger that lockout. The budget is checked
+before the password because that is the only ordering that slows guessing down. Raise
+`login_limit_per_hour` to trade protection for availability, or lower it to do the reverse.
+
+**The session token travels two ways, because the preview eats one of them.** This was the
+cause underneath three reports of being logged out, and it was found by reading which requests
+worked. Every request whose credential travelled in a *body* arrived intact —
+`POST /api/auth/login` and `POST /api/auth/demo-login`, both 200 — while every request carrying
+a token in the `Authorization` header reached this server with no credential at all:
+`/api/auth/me` answered as a *guest* to a browser that was holding a token,
+`/api/billing/account` answered 401, and minting a brand-new token changed neither because the
+new one went missing the same way. The cookie could not cover for it — it is `SameSite=Lax`,
+and a browser does not send that from inside a cross-site iframe, which an embedded preview is.
+So the client now sends the same token in `Authorization` *and* in `X-Eidomira-Token`, and the
+server accepts whichever arrives. One credential, two headers, no fallback logic: whichever the
+deployment preserves is enough, and `Authorization` still wins when both are present.
+`tools/auth_stripping_proxy.py` reproduces the failure — a proxy whose one job is to drop that
+header — and the test suite drives the real page and the real dependency through it, because
+every check up to that point had gone straight to `127.0.0.1` and never through a proxy at all.
+The diagnostic log says which route a credential arrived by, so this can be answered by reading
+rather than by inference.
+
+**The demo password does not move, and the card says it out loud.** It is the built-in
+`eidomira-demo-2026`, published by `/api/auth/methods` and shown on the card. Running a preview
+with `STUDIO_DEMO_PASSWORD` set changes it for that run — which is how a password that worked
+yesterday stops working today, and why a preview should use the published default. When a failed
+sign-in names a demo address, the card appends the actual password to the error instead of
+leaving "Invalid email or password" beside a page that is displaying one; that credential is
+already printed there, so saying it again exposes nothing. Next to it is a **Use this password**
+button that submits the published values directly, so nothing has to be typed, remembered, or
+autofilled from a previous session — a browser that saved an older password will keep offering
+it, and one click now overrules it.
+
+**A session the server cannot see is tried for, not ended.** The third report of the same
+symptom arrived with a different cause. The access log showed the studio leaving for
+`/?signin=1&ended=1` with **no 401 anywhere in it**: `/api/auth/me` answered 200, but as a
+*guest* — no credential reached the server even though the page was holding a token. From the
+client, "the credential is finished" and "the credential never arrived" are the same 200, so the
+only safe reading is the recoverable one: a "no session" answer triggers a restore and a second
+ask, and the session ends only if that second ask agrees. The page logs the case to the console,
+because it is the one failure here that is invisible from the browser.
+
+**Only a session failure may end a session, and it is asked first.** Three separate things used
+to sign people out, and all three were reported as one bug. The last of them was found by reading
+the access log of the browser that hit it: `/api/auth/me` answered 200, `/api/billing/account`
+answered 401, a new session was minted correctly, the retry answered 401 again, and the page
+signed the visitor out — even though the session had never been rejected. Two mistakes made that
+possible. `/api/auth/me` answers 200 to an anonymous caller with a *guest* record, so the one
+call whose job is to decide the session could not decide it (and the account chip could render
+`local@eidomira.invalid`, an account that does not exist). And `/api/billing/account` answering
+401 to an anonymous caller — a correct refusal that says nothing about the session — was read as
+a dead token. Now: a 401 buys a restore and a retry; if it survives that, the session endpoint is
+asked directly, and only its answer can end a session. If the server cannot be asked at all, the
+session stays, because "no answer" is not "signed out". `endSession()` is the single place a visit
+ends, it fires once, and it says why in the console — and every refusal now says which kind
+it was: a 200 on `/api/auth/me` says whether it was the account or the guest record, a refusal
+on a token-carrying call says whether a credential arrived, and a refused sign-in says the email
+and password matched no account rather than the generic "no credential was sent", which was
+never true of a form whose credential is in the body. Type `await eidomiraSession()` in that
+page's console to see what the page believes: whether a token is held, when it expires, who the
+server says it belongs to, and whether the demo could restore one. On the server, every 401 on
+`/api/` now logs whether a credential was sent and refused, or whether none was sent — the
+distinction the incident log could not make. No credential is logged.
+
+**A lost session is restored, not reported.** Two things take a session away in a hosted
+preview, and neither is anybody's mistake. The sandbox identifier changes — it changed between
+two sessions of work on this feature, `iifsolp0din8orm9w5hce` to `ipv1b4xm4krvvtj8q6qdo` — and
+because the preview is served from `https://<port>-<sandbox>.e2b.app`, that moves the whole
+origin, taking `localStorage` with it. And the development database is rebuilt, so the account a
+token names is recreated. Both look exactly like being logged out. While `STUDIO_DEMO_LOGIN` is
+on, the studio now asks for a demo session and carries on, restoring the same role as last time,
+once per page load so a genuine failure cannot loop; only if that fails is the visitor actually
+signed out, with the message saying so. A stray redirect on the line that reads the token had to
+go for this to work at all — it navigated to the sign-in card while the restore was still in
+flight.
+
+**A session survives the database being rebuilt, and says so when it ends.** The demo accounts
+are created with fixed ids — `demouser0000…`, `demoadmin000…` — rather than random ones. A
+session is signed over the account's id, so with a random id every rebuild of the database (a
+fresh deployment, a wiped volume, or the throwaway database a hosted preview runs on) left
+tokens pointing at rows that no longer existed: the server answered 401, the page signed the
+visitor out, and signing in again only bought time until the next rebuild. With fixed ids the
+rebuilt row is the same account and the session continues. An installation that already has
+demo accounts keeps their current ids; this decides only what a *new* one is created with. When
+a session really does end, the sign-in card now says so instead of appearing for no reason.
+
+**Changing the password is refused with 403, not 401, when the current one is wrong.** 401
+means "not authenticated", and the studio's client ends a session when a request that carried a
+token is answered 401 — so a mistyped password would have signed the user out of the page they
+were using to fix it. 403 says what is true: authenticated, and this one action refused. Related:
+no transient failure in the studio — a network blip, a billing payload that will not parse, a
+rendering error — may clear the token. Only the session check itself can, and only on a 401.
+
+**The password can be changed from Settings, and open sessions survive it.** `POST
+/api/auth/password` requires the current password — a session token alone must not be enough to
+take an account away from its owner — and applies the same length rule as sign-up. Sessions
+already open are deliberately *not* revoked: they are signed tokens with nothing to revoke, and
+the page says so rather than implying otherwise, so a stolen laptop keeps working until its
+token expires.
+
+**One-click demo sign-in is a flag, and it will not run on https.** Setting
+`STUDIO_DEMO_LOGIN=1` puts two buttons on the login card — a customer and an administrator
+— that open a seeded account without a password. Each button names the account it opens
+(`demo@eidomira.test`, `admin@eidomira.test`); the addresses arrive from
+`/api/auth/methods` at run time, so the card cannot advertise an account that does not
+exist. Both demo accounts have a password, and the card shows it. That is deliberate: the demo is
+meant to exercise the ordinary sign-in path rather than a private shortcut around it, so the
+buttons submit the same form a customer would, and somebody can type the credentials instead.
+The default is `eidomira-demo-2026`; set `STUDIO_DEMO_PASSWORD` to use your own (10 characters
+or more, the rule the sign-up form applies, and changing it takes effect on the next restart).
+It is honoured only while demo sign-in is on, and turning the flag off takes the address and
+the password off the card without anybody editing the page. The `POST /api/auth/demo-login`
+route remains as the fallback the buttons use if the ordinary path fails, and for scripts. The
+`.test` domain is reserved by RFC 2606, so the addresses cannot collide with a customer or
+receive mail. Setting the flag while `STUDIO_PUBLIC_URL` is `https://`
+turns the feature **off, not on** — an administrator account one click from a public page
+is the thing nobody means to ship — and the server logs the reason at startup. The accounts
+are ordinary accounts: they are created on first use with a verified address and the normal
+100-credit trial, they appear in the owner console marked as demo, and hiding the buttons
+(`STUDIO_DEMO_LOGIN=0`) does not delete them.
+
+**The studio's page is served to anyone; its data is not.** `/app` and `/admin` are static
+shells — no accounts, no figures, no session — and the same files have always been readable at
+`/static/app.html` and `/static/admin.html`. What decides whether a visitor sees the studio or
+the sign-in card is `static/app.js`, which redirects to `/?signin=1` when there is no token,
+and every byte the studio displays comes from an API that refuses an anonymous caller.
+
+That is not a choice so much as a correction. The page used to be gated on the server, and the
+server could only see a **cookie** — while this product's session lives in `localStorage` and
+travels as an `Authorization` header, which a *browser navigation* cannot send. Where the
+cookie is blocked (any embedded or third-party context, which is exactly how the preview is
+served) the gate locked out somebody who had just signed in successfully: `POST
+/api/auth/demo-login` answered 200, the next `GET /app` arrived with no cookie, and the user
+bounced back to the sign-in card in a loop. The client is the only side holding the token, so
+the client makes the call. `/api/admin/overview` still answers 401 to an anonymous caller and
+403 to an ordinary account, unchanged.
+
+**Embedding the studio is an opt-in.** Those pages send `frame-ancestors 'self'`, which stops
+another site framing them and harvesting clicks meant for their buttons — and which also means
+a page served *inside* a frame will not render at all. Set `STUDIO_EMBED_ANCESTORS` to the
+origins allowed to frame them (space or comma separated, `*` discouraged) when the app is
+deliberately embedded; the default stays closed.
+
+**Pages and scripts are revalidated, not reused — and their URLs change when they do.**
+Every page is served with `Cache-Control: no-cache`, so a browser asks before using its copy
+and an ETag usually answers with a 304. That is not enough on its own, because a copy already
+in a cache may have been stored under the old headers with an invented freshness lifetime
+still running. So `app/pages.py` also rewrites every local asset reference the moment the page
+is served, appending a short digest of the file's bytes: `<script src="/static/landing.js?v=7b8a914b31">`.
+A version of a file is a different URL, which no cache in the path can answer with different
+content, and the digest is computed from the file rather than written into the markup, so
+there is no version number to remember to bump.
+
+This was learned the expensive way. A one-click demo sign-in existed for a day and was
+invisible: the page arrived (revalidated, carrying the markup) and `landing.js` did not (reused
+from the browser's cache), so the code that displays it never ran and no request for it ever
+reached the server. It presented exactly as a feature that had never been built. The service
+worker that `/app` registers caused it — it is network-first, but its `fetch()` still goes
+through the browser's own cache. Navigations now bypass that cache entirely, and the file's
+stamped URL covers everything else. One known gap: the runtime lab's page and its stylesheet are
+stamped, but the module it imports from inside (`/static/boost.js`) keeps its bare URL, so a
+browser holding a stale copy of that one file after an update would need a hard reload.
+
+**A proxy must be declared, or rate limiting degrades silently.** uvicorn only rewrites the
+peer address from `X-Forwarded-For` for proxies listed in `FORWARDED_ALLOW_IPS`
+(loopback by default). Left at the default behind a reverse proxy, every caller shares one
+bucket: the whole platform gets 120 requests a minute and one client can lock out sign-in
+for everyone. Set it to the proxy address or network — `docker-compose.yml` carries a
+commented example — and the app logs a warning at startup when `PUBLIC_URL` is `https://`
+while only loopback is trusted.
