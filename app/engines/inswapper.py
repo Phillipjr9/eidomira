@@ -68,7 +68,12 @@ class InSwapperEngine(FaceSwapEngine):
         # otherwise InsightFace tries to bind a GPU context that does not exist.
         self.analyzer.prepare(ctx_id=0 if "CUDAExecutionProvider" in self.providers else -1,
                               det_size=(320, 320))
-        self.swapper = insightface.model_zoo.get_model(model_path, providers=self.providers)
+        try:
+            self.swapper = insightface.model_zoo.get_model(
+                model_path, providers=self.providers, download=False, download_zip=False
+            )
+        except TypeError:
+            self.swapper = insightface.model_zoo.get_model(model_path, providers=self.providers)
         self.compositor = None
         for p in [settings.parser_model_path, Path("models/face_parser.onnx"), Path("/kaggle/working/eidomira/models/face_parser.onnx"), Path(__file__).resolve().parent.parent.parent / "models" / "face_parser.onnx"]:
             if Path(p).exists():

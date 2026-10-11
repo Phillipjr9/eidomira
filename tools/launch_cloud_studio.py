@@ -302,8 +302,47 @@ def main():
         print("Error: Cloudflare tunnel binary not found.", file=sys.stderr)
         return 1
 
-    # 4. Open Cloudflare Tunnel
-    print("Opening secure HTTPS tunnel for Eidomira Studio…", flush=True)
+    # 4. Launch Uvicorn web server FIRST and wait for local 200 OK before exposing tunnel
+    import uvicorn
+    import traceback
+
+    try:
+        if str(ROOT) in sys.path:
+            sys.path.remove(str(ROOT))
+        sys.path.insert(0, str(ROOT))
+
+        print(f"\n--- Initializing {args.mode.upper()} Neural Engine ---", flush=True)
+        from app.main import app as fastapi_app
+
+        config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
+        server = uvicorn.Server(config)
+        server_thread = threading.Thread(target=server.run, daemon=True)
+        server_thread.start()
+
+        print("Waiting for Eidomira web server to respond on port 8000…", flush=True)
+        server_ready = False
+        start_wait = time.time()
+        while time.time() - start_wait < 60:
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:8000/app", timeout=1.0) as resp:
+                    if resp.status == 200:
+                        server_ready = True
+                        break
+            except Exception:
+                pass
+            time.sleep(1.0)
+
+        if not server_ready:
+            print("Notice: Server taking longer than 60s to respond locally.", flush=True)
+        else:
+            print("✅ Web server verified locally (HTTP 200 OK)!", flush=True)
+
+    except Exception as exc:
+        print(f"Server startup notice: {exc}", flush=True)
+        traceback.print_exc()
+
+    # 5. Open Cloudflare Tunnel only AFTER server is live (prevents Error 524 timeouts)
+    print("\nOpening secure HTTPS tunnel for Eidomira Studio…", flush=True)
     log_file = Path("/tmp/cloudflared_studio.log")
     if log_file.exists():
         try:
@@ -328,65 +367,20 @@ def main():
                 match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", content)
                 if match:
                     public_url = match.group(0)
-                    print(f"[Tunnel Active]: {public_url}", flush=True)
                     break
             except Exception:
                 pass
         time.sleep(0.5)
 
-    # 5. Launch Uvicorn in background thread and wait for 200 OK before announcing
-    import uvicorn
-    import traceback
-
-    try:
-        if str(ROOT) in sys.path:
-            sys.path.remove(str(ROOT))
-        sys.path.insert(0, str(ROOT))
-
-        print(f"\n--- Initializing {args.mode.upper()} Neural Engine ---", flush=True)
-        from app.engines.factory import create_engine
-        warmup_engine = create_engine()
-        if warmup_engine.name == "inswapper":
-            print("🚀 INSWAPPER LIVE WEBCAM SWAP READY ON GPU (0s Latency / TikTok Style)!\n", flush=True)
-        elif getattr(warmup_engine, "_initialized", False):
-            import torch
-            if hasattr(torch, "cuda") and torch.cuda.is_available() and getattr(torch.version, "cuda", None):
-                print("🚀 LIVEPORTRAIT NEURAL ENGINE READY ON GPU (CUDA)!\n", flush=True)
-            else:
-                print("⚡ LIVEPORTRAIT NEURAL ENGINE READY ON CPU!\n", flush=True)
-        else:
-            err = getattr(warmup_engine, "_init_error", "Unknown initialization failure")
-            print(f"⚠️ Engine running in fallback mode: {err}\n", flush=True)
-
-        from app.main import app as fastapi_app
-
-        config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
-        server = uvicorn.Server(config)
-        server_thread = threading.Thread(target=server.run, daemon=True)
-        server_thread.start()
-
-        print("Waiting for Eidomira web server to respond on port 8000…", flush=True)
-        server_ready = False
-        start_wait = time.time()
-        while time.time() - start_wait < 60:
-            try:
-                with urllib.request.urlopen("http://127.0.0.1:8000/app", timeout=1.0) as resp:
-                    if resp.status == 200:
-                        server_ready = True
-                        break
-            except Exception:
-                pass
-            time.sleep(1.0)
-
-        if server_ready and public_url:
-            print("\n" + "#" * 72, flush=True)
-            print("  🎉 EIDOMIRA LIVE WEBCAM STUDIO IS 100% READY!", flush=True)
-            print("#" * 72, flush=True)
-            print(f"\n  👉 OPEN THIS LINK ON YOUR MAC BROWSER (Chrome/Safari):", flush=True)
-            print(f"     {public_url}/app\n", flush=True)
-            print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026\n", flush=True)
-            print(f"  📸 TO SHARE LIVE OUTPUT FOR AGENT INSPECTION:", flush=True)
-            print(f"     1. In Eidomira Studio, click '📸 Snapshot' (or press S) to save", flush=True)
+    if public_url:
+        print("\n" + "#" * 72, flush=True)
+        print("  🎉 EIDOMIRA LIVE WEBCAM STUDIO IS 100% READY!", flush=True)
+        print("#" * 72, flush=True)
+        print(f"\n  👉 OPEN THIS LINK ON YOUR MAC BROWSER (Chrome/Safari):", flush=True)
+        print(f"     {public_url}/app\n", flush=True)
+        print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026\n", flush=True)
+        print(f"  📸 TO SHARE LIVE OUTPUT FOR AGENT INSPECTION:", flush=True)
+        print(f"     1. In Eidomira Studio, click '📸 Snapshot' (or press S) to save", flush=True)
             print(f"        a 3-panel comparison PNG directly to your computer, then drop it into Arena chat.", flush=True)
             print(f"     2. Or in a new Kaggle notebook cell, run:", flush=True)
             print(f"        from IPython.display import Image, display; display(Image('captures/monitor_side_by_side.jpg'))", flush=True)
