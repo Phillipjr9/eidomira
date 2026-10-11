@@ -27,9 +27,15 @@ def create_engine():
     if backend == INSWAPPER_BACKEND:
         try:
             import insightface
-            if not settings.model_path.exists():
-                raise RuntimeError(f"Licensed model is missing: {settings.model_path}")
-            return InSwapperEngine(str(settings.model_path), settings.verification_threshold)
-        except Exception:
+            mp = Path(os.environ.get("STUDIO_MODEL_PATH", settings.model_path))
+            if not mp.exists():
+                mp = Path("models/inswapper_128.onnx")
+            if not mp.exists():
+                raise RuntimeError(f"Licensed model is missing: {mp}")
+            return InSwapperEngine(str(mp), settings.verification_threshold)
+        except Exception as exc:
+            import traceback
+            print(f"❌ [InSwapper Init Error]: {exc}", flush=True)
+            traceback.print_exc()
             return DiagnosticEngine()
     return DiagnosticEngine()

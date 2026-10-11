@@ -55,11 +55,19 @@ class InSwapperEngine(FaceSwapEngine):
         self.providers = list(execution_providers())
         self.provider = describe_providers(self.providers)
         self.accelerated = self.provider != "cpu"
-        self.analyzer = FaceAnalysis(name="buffalo_l", providers=self.providers)
+        insight_root = None
+        for p in [Path.home() / ".insightface", Path("/kaggle/working/LivePortrait/pretrained_weights/insightface"), Path("pretrained_weights/insightface")]:
+            if p.exists() and (p / "models" / "buffalo_l").exists():
+                insight_root = str(p)
+                break
+        if insight_root:
+            self.analyzer = FaceAnalysis(name="buffalo_l", root=insight_root, providers=self.providers)
+        else:
+            self.analyzer = FaceAnalysis(name="buffalo_l", providers=self.providers)
         # ctx_id selects the CUDA device; it must be < 0 when CUDA is not in play,
         # otherwise InsightFace tries to bind a GPU context that does not exist.
         self.analyzer.prepare(ctx_id=0 if "CUDAExecutionProvider" in self.providers else -1,
-                              det_size=(640, 640))
+                              det_size=(320, 320))
         self.swapper = insightface.model_zoo.get_model(model_path, providers=self.providers)
         self.compositor = None
         for p in [settings.parser_model_path, Path("models/face_parser.onnx"), Path("/kaggle/working/eidomira/models/face_parser.onnx"), Path(__file__).resolve().parent.parent.parent / "models" / "face_parser.onnx"]:

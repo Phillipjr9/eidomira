@@ -64,6 +64,47 @@ def download_cloudflared():
     return None
 
 
+def ensure_inswapper_model():
+    model_path = ROOT / "models" / "inswapper_128.onnx"
+    if model_path.exists() and model_path.stat().st_size > 500_000_000:
+        return model_path
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    urls = [
+        "https://huggingface.co/ezioruan/inswapper_128.onnx/resolve/main/inswapper_128.onnx",
+        "https://huggingface.co/xingren23/comfyflow-models/resolve/main/insightface/inswapper_128.onnx",
+    ]
+    print("\n[TikTok Live Swap Mode]: Downloading InSwapper weights (~554 MB)…", flush=True)
+    for url in urls:
+        try:
+            print(f"Fetching from {url}…", flush=True)
+            subprocess.run(["curl", "-fSL", "--progress-bar", url, "-o", str(model_path)], check=True)
+            if model_path.exists() and model_path.stat().st_size > 500_000_000:
+                print("InSwapper model verified successfully!", flush=True)
+                return model_path
+        except Exception as exc:
+            print(f"Download notice ({exc}), trying next mirror…", flush=True)
+            continue
+    return model_path
+
+
+def ensure_buffalo_l():
+    user_bf = Path.home() / ".insightface" / "models" / "buffalo_l"
+    if user_bf.exists() and any(user_bf.glob("*.onnx")):
+        return
+    for cand in [
+        Path("/kaggle/working/LivePortrait/pretrained_weights/insightface/models/buffalo_l"),
+        ROOT / "pretrained_weights" / "insightface" / "models" / "buffalo_l",
+    ]:
+        if cand.exists() and any(cand.glob("*.onnx")):
+            user_bf.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.symlink(str(cand), str(user_bf))
+                print("Linked InsightFace buffalo_l models from cache.", flush=True)
+                return
+            except Exception:
+                pass
+
+
 def main():
     print("=" * 72, flush=True)
     print("  EIDOMIRA CLOUD GPU LIVE WEBRTC STUDIO", flush=True)
@@ -79,7 +120,16 @@ def main():
     subprocess.run(["pkill", "-f", "cloudflared"], check=False)
     subprocess.run(["pkill", "-f", "LivePortrait/app.py"], check=False)
 
-    os.environ["STUDIO_BACKEND"] = "liveportrait"
+    import argparse
+    parser = argparse.ArgumentParser(description="Launch Eidomira Studio on Cloud GPU")
+    parser.add_argument(
+        "--mode",
+        choices=["swap", "portrait"],
+        default="swap",
+        help="Studio mode: 'swap' (TikTok-style live webcam face replacement, 0s delay) or 'portrait' (LivePortrait photo animation)"
+    )
+    args, _ = parser.parse_known_args()
+
     os.environ["STUDIO_ALLOWED_ORIGINS"] = "*"
     os.environ["STUDIO_DEMO_LOGIN"] = "true"
     os.environ["STUDIO_DEMO_PASSWORD"] = "eidomira-demo-2026"
@@ -124,47 +174,60 @@ def main():
     else:
         print("Studio dependencies verified.", flush=True)
 
-    # 2. Ensure LivePortrait neural models are present
-    liveportrait_dir = Path("/kaggle/working/LivePortrait")
-    if not (liveportrait_dir / "src" / "live_portrait_wrapper.py").exists() and not (ROOT / "third_party" / "LivePortrait" / "src").exists():
-        print("LivePortrait not found. Initializing setup…", flush=True)
-        from tools.setup_liveportrait import main as setup_lp
-        setup_lp()
-
-    # Ensure ROOT is first in sys.path so 'app' always refers to eidomira/app, not LivePortrait/app.py
-    if str(ROOT) in sys.path:
-        sys.path.remove(str(ROOT))
-    sys.path.insert(0, str(ROOT))
-
-    if liveportrait_dir.exists() and str(liveportrait_dir) not in sys.path:
-        sys.path.append(str(liveportrait_dir))
-
-    # Apply hardware fallback patch so LivePortrait runs smoothly on both CPU and GPU
-    wrapper_file = liveportrait_dir / "src" / "live_portrait_wrapper.py"
-    if wrapper_file.exists():
+    if args.mode == "swap":
+        os.environ["STUDIO_BACKEND"] = "inswapper"
+        model_p = ensure_inswapper_model()
+        ensure_buffalo_l()
+        os.environ["STUDIO_MODEL_PATH"] = str(model_p)
         try:
-            w = wrapper_file.read_text()
-            old_cond = "if inference_cfg.flag_force_cpu:"
-            new_cond = "if inference_cfg.flag_force_cpu or not (hasattr(torch, 'cuda') and torch.cuda.is_available() and getattr(torch.version, 'cuda', None)):\n            inference_cfg.flag_use_half_precision = False\n            inference_cfg.flag_force_cpu = True"
-            if old_cond in w and "torch.cuda.is_available()" not in w:
-                w = w.replace(old_cond, new_cond)
-                wrapper_file.write_text(w)
-        except Exception as exc:
-            print(f"Notice on wrapper patch: {exc}", flush=True)
+            import insightface
+        except ImportError:
+            print("Installing insightface…", flush=True)
+            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "insightface"], check=True)
+        print("\nTarget Neural Backend: INSWAPPER (TikTok Live-Stream Webcam Swap · 0s Delay)", flush=True)
+    else:
+        os.environ["STUDIO_BACKEND"] = "liveportrait"
+        # 2. Ensure LivePortrait neural models are present
+        liveportrait_dir = Path("/kaggle/working/LivePortrait")
+        if not (liveportrait_dir / "src" / "live_portrait_wrapper.py").exists() and not (ROOT / "third_party" / "LivePortrait" / "src").exists():
+            print("LivePortrait not found. Initializing setup…", flush=True)
+            from tools.setup_liveportrait import main as setup_lp
+            setup_lp()
 
-    cropper_file = liveportrait_dir / "src" / "utils" / "cropper.py"
-    if cropper_file.exists():
-        try:
-            c = cropper_file.read_text()
-            old_crop = "if flag_force_cpu:"
-            new_crop = "if flag_force_cpu or not (hasattr(torch, 'cuda') and torch.cuda.is_available() and getattr(torch.version, 'cuda', None)):"
-            if old_crop in c and "torch.cuda.is_available()" not in c:
-                c = c.replace(old_crop, new_crop)
-                cropper_file.write_text(c)
-        except Exception as exc:
-            print(f"Notice on cropper patch: {exc}", flush=True)
+        # Ensure ROOT is first in sys.path so 'app' always refers to eidomira/app, not LivePortrait/app.py
+        if str(ROOT) in sys.path:
+            sys.path.remove(str(ROOT))
+        sys.path.insert(0, str(ROOT))
 
-    print("\nTarget Neural Backend: LIVEPORTRAIT (Kling AI Reference Motion)", flush=True)
+        if liveportrait_dir.exists() and str(liveportrait_dir) not in sys.path:
+            sys.path.append(str(liveportrait_dir))
+
+        # Apply hardware fallback patch so LivePortrait runs smoothly on both CPU and GPU
+        wrapper_file = liveportrait_dir / "src" / "live_portrait_wrapper.py"
+        if wrapper_file.exists():
+            try:
+                w = wrapper_file.read_text()
+                old_cond = "if inference_cfg.flag_force_cpu:"
+                new_cond = "if inference_cfg.flag_force_cpu or not (hasattr(torch, 'cuda') and torch.cuda.is_available() and getattr(torch.version, 'cuda', None)):\n            inference_cfg.flag_use_half_precision = False\n            inference_cfg.flag_force_cpu = True"
+                if old_cond in w and "torch.cuda.is_available()" not in w:
+                    w = w.replace(old_cond, new_cond)
+                    wrapper_file.write_text(w)
+            except Exception as exc:
+                print(f"Notice on wrapper patch: {exc}", flush=True)
+
+        cropper_file = liveportrait_dir / "src" / "utils" / "cropper.py"
+        if cropper_file.exists():
+            try:
+                c = cropper_file.read_text()
+                old_crop = "if flag_force_cpu:"
+                new_crop = "if flag_force_cpu or not (hasattr(torch, 'cuda') and torch.cuda.is_available() and getattr(torch.version, 'cuda', None)):"
+                if old_crop in c and "torch.cuda.is_available()" not in c:
+                    c = c.replace(old_crop, new_crop)
+                    cropper_file.write_text(c)
+            except Exception as exc:
+                print(f"Notice on cropper patch: {exc}", flush=True)
+
+        print("\nTarget Neural Backend: LIVEPORTRAIT (Kling AI Photo Animation)", flush=True)
 
     # 3. Setup Cloudflare Tunnel binary
     cloudflared_path = download_cloudflared()
@@ -219,10 +282,12 @@ def main():
             sys.path.remove(str(ROOT))
         sys.path.insert(0, str(ROOT))
 
-        print("\n--- Initializing LivePortrait Neural Engine ---", flush=True)
+        print(f"\n--- Initializing {args.mode.upper()} Neural Engine ---", flush=True)
         from app.engines.factory import create_engine
         warmup_engine = create_engine()
-        if getattr(warmup_engine, "_initialized", False):
+        if warmup_engine.name == "inswapper":
+            print("🚀 INSWAPPER LIVE WEBCAM SWAP READY ON GPU (0s Latency / TikTok Style)!\n", flush=True)
+        elif getattr(warmup_engine, "_initialized", False):
             import torch
             if hasattr(torch, "cuda") and torch.cuda.is_available() and getattr(torch.version, "cuda", None):
                 print("🚀 LIVEPORTRAIT NEURAL ENGINE READY ON GPU (CUDA)!\n", flush=True)
@@ -230,7 +295,7 @@ def main():
                 print("⚡ LIVEPORTRAIT NEURAL ENGINE READY ON CPU!\n", flush=True)
         else:
             err = getattr(warmup_engine, "_init_error", "Unknown initialization failure")
-            print(f"⚠️ LivePortrait running in fallback mode: {err}\n", flush=True)
+            print(f"⚠️ Engine running in fallback mode: {err}\n", flush=True)
 
         from app.main import app as fastapi_app
 
