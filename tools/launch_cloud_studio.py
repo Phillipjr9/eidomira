@@ -122,11 +122,13 @@ def main():
 
     import argparse
     parser = argparse.ArgumentParser(description="Launch Eidomira Studio on Cloud GPU")
+    has_inswapper = (ROOT / "models" / "inswapper_128.onnx").exists() and (ROOT / "models" / "inswapper_128.onnx").stat().st_size > 500_000_000
+    default_mode = "swap" if has_inswapper else "portrait"
     parser.add_argument(
         "--mode",
         choices=["swap", "portrait"],
-        default="swap",
-        help="Studio mode: 'swap' (TikTok-style live webcam face replacement, 0s delay) or 'portrait' (LivePortrait photo animation)"
+        default=default_mode,
+        help="Studio mode: 'swap' (TikTok-style live webcam face replacement) or 'portrait' (LivePortrait photo animation)"
     )
     args, _ = parser.parse_known_args()
 

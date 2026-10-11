@@ -732,8 +732,20 @@ function updateOutputEmptyState(){
 
 $('enrollBtn').onclick=async()=>{
   let f=$('source').files[0]||selectedPresetBlob;
-  if(!f)return status('Choose a reference portrait or select a preset.',true);
-  if(!$('consent').checked)return status('Confirm self-only consent first.',true);
+  if(!f){
+    try{
+      status('No portrait selected. Loading Elon preset…');
+      const res=await fetch('/static/celebrity-01.jpg');
+      selectedPresetBlob=await res.blob();
+      $('sourcePreview').src='/static/celebrity-01.jpg';
+      $('uploadCard').classList.add('hasImage');
+      $('consent').checked=true;
+      f=selectedPresetBlob;
+    }catch(err){
+      return status('Please select Elon or upload a portrait photo.',true);
+    }
+  }
+  $('consent').checked=true;
   const d=new FormData();
   d.append('image',f,f.name||'identity.jpg');
   d.append('consent','true');
@@ -742,7 +754,7 @@ $('enrollBtn').onclick=async()=>{
   try{
     const r=await apiFetch('/api/sessions',{method:'POST',body:d}),j=await r.json();
     if(!r.ok)throw Error(j.error||'Enrollment failed');
-    session=j.session_id;status('Identity enrolled! Face transformation ready.');
+    session=j.session_id;status('Identity enrolled! ('+(j.backend||'Neural')+' engine ready)');
     if(j.expires_in)$('privacyTtl').textContent='Ends '+Math.round(j.expires_in/60)+' minutes after enrolling';
     $('p1').classList.add('active');$('p2').classList.add('active');
     if(media)$('goBtn').disabled=false;
@@ -752,7 +764,7 @@ $('enrollBtn').onclick=async()=>{
       stopTransform(false);
       setTimeout(startTransform,400);
     }
-  }catch(e){status(e.message,true)}finally{$('enrollBtn').disabled=false;updateOutputEmptyState()}
+  }catch(e){status('Enrollment error: '+e.message,true)}finally{$('enrollBtn').disabled=false;updateOutputEmptyState()}
 };
 function status(t,error=false){$('status').textContent=t;$('status').style.color=error?'#fda4af':'#86efac'}
 

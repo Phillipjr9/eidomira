@@ -492,11 +492,22 @@ def enroll(image: UploadFile = File(...), consent: bool = Form(...), quality: st
     if quality not in {"speed", "balanced", "quality"}:
         return JSONResponse({"error": "Invalid quality preset."}, status_code=400)
     try:
-        enrollment = engine.enroll(decode(image.file.read()))
+        raw_bytes = image.file.read()
+        frame = decode(raw_bytes)
+        if frame is None:
+            return JSONResponse({"error": "Could not decode uploaded portrait image."}, status_code=422)
+        enrollment = engine.enroll(frame)
         session = sessions.create(enrollment.identity, quality, user["id"])
+        print(f"✅ [Session Enrolled]: id={session.id} backend={engine.name}", flush=True)
         return {"session_id": session.id, "backend": engine.name, "expires_in": settings.session_ttl_seconds}
     except ValueError as exc:
+        print(f"⚠️ [Enrollment Validation Error]: {exc}", flush=True)
         return JSONResponse({"error": str(exc)}, status_code=422)
+    except Exception as exc:
+        import traceback
+        print(f"❌ [Enrollment Server Error]: {exc}", flush=True)
+        traceback.print_exc()
+        return JSONResponse({"error": f"Engine error: {exc}"}, status_code=500)
 
 
 @app.delete("/api/sessions/{sid}")
