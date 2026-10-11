@@ -834,6 +834,7 @@ function startWebSocketTransform(){
     $('outputEmpty').style.display='none';
     $('recordBtn').disabled=false;
     $('recenterBtn').disabled=false;
+    $('snapshotBtn').disabled=false;
     $('cleanBtn').disabled=false;
 
     wsFrameTimer=setInterval(()=>{
@@ -911,7 +912,7 @@ async function startTransform(){
     if(!configResponse.ok)throw Error(rtcConfig.error||'Could not obtain ICE configuration');
     pc=new RTCPeerConnection(rtcConfig);
     media.getVideoTracks().forEach(track=>{const transceiver=pc.addTransceiver(track,{direction:'sendrecv'});try{const codecs=RTCRtpSender.getCapabilities('video').codecs;const rank=c=>c.mimeType.toLowerCase()==='video/h264'?0:c.mimeType.toLowerCase()==='video/vp8'?1:2;transceiver.setCodecPreferences([...codecs].sort((a,b)=>rank(a)-rank(b)))}catch{}});
-    pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);$('output').srcObject=stream;$('output').style.display='block';$('outputEmpty').style.display='none';$('recordBtn').disabled=false;$('recenterBtn').disabled=false;$('cleanBtn').disabled=false;$('output').play().catch(()=>{})};
+    pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);$('output').srcObject=stream;$('output').style.display='block';$('outputEmpty').style.display='none';$('recordBtn').disabled=false;$('recenterBtn').disabled=false;$('snapshotBtn').disabled=false;$('cleanBtn').disabled=false;$('output').play().catch(()=>{})};
     pc.ondatachannel=e=>{if(e.channel.label==='eidomira-telemetry')e.channel.onmessage=handleTelemetry};
 
     // If WebRTC UDP doesn't reach connected in 2.5s (e.g. cloud NAT without UDP), switch to WebSocket stream
@@ -983,7 +984,7 @@ function stopTransform(reset=true){
   if(pc){pc.onconnectionstatechange=null;pc.getSenders().forEach(s=>{if(s.track)s.replaceTrack(null).catch(()=>{})});pc.close();pc=null}
   wakeLock?.release().catch(()=>{});wakeLock=null;
   $('output').srcObject=null;$('output').style.display='none';$('outputCanvas').style.display='none';$('outputEmpty').style.display='grid';$('livenessPrompt').style.display='none';
-  $('goBtn').innerHTML='<span>✦</span> Start transformation';$('outputBadge').textContent='WAITING';$('outputBadge').className='badge';$('recordBtn').disabled=true;$('recenterBtn').disabled=true;$('cleanBtn').disabled=true;exitCleanMode();
+  $('goBtn').innerHTML='<span>✦</span> Start transformation';$('outputBadge').textContent='WAITING';$('outputBadge').className='badge';$('recordBtn').disabled=true;$('recenterBtn').disabled=true;$('snapshotBtn').disabled=true;$('cleanBtn').disabled=true;exitCleanMode();
   if(reset)reconnects=0;
 }
 
@@ -997,6 +998,85 @@ $('recenterBtn').onclick=async()=>{
     await apiFetch('/api/sessions/'+session+'/recalibrate',{method:'POST'});
     status('Neutral posture recalibrated.');
   }catch(e){status('Recalibration failed: '+e.message,true)}
+};
+$('snapshotBtn').onclick=()=>{
+  const vid=$('video');
+  const personaImg=$('sourcePreview');
+  const outCanvas=$('outputCanvas');
+  const outVid=$('output');
+
+  const canvas=document.createElement('canvas');
+  canvas.width=1140;
+  canvas.height=440;
+  const ctx=canvas.getContext('2d');
+
+  // Background
+  ctx.fillStyle='#0f172a';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Header
+  ctx.fillStyle='#38bdf8';
+  ctx.font='bold 16px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillText('EIDOMIRA STUDIO · NEURAL DIAGNOSTIC MONITOR',24,32);
+
+  ctx.fillStyle='#94a3b8';
+  ctx.font='12px monospace';
+  const now=new Date().toISOString().replace('T',' ').substring(0,19);
+  ctx.fillText(`CAPTURE: ${now} | LATENCY: ${$('latency').textContent} | FRAME COST: ${$('frameCost').textContent}`,580,32);
+
+  // Helper for drawing panel
+  function drawPanel(source,x,y,w,h,label,color='#38bdf8'){
+    ctx.save();
+    ctx.strokeStyle='#334155';
+    ctx.lineWidth=1;
+    ctx.strokeRect(x,y,w,h);
+    if(source && ((source.videoWidth && source.videoWidth>0) || (source.naturalWidth && source.naturalWidth>0) || (source.width && source.width>0))){
+      try{
+        ctx.drawImage(source,x,y,w,h);
+      }catch(_){
+        ctx.fillStyle='#1e293b';
+        ctx.fillRect(x,y,w,h);
+      }
+    }else{
+      ctx.fillStyle='#1e293b';
+      ctx.fillRect(x,y,w,h);
+    }
+    // Label tag
+    ctx.fillStyle='rgba(15, 23, 42, 0.85)';
+    ctx.fillRect(x,y+h-28,w,28);
+    ctx.fillStyle=color;
+    ctx.font='bold 12px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillText(label,x+10,y+h-10);
+    ctx.restore();
+  }
+
+  // 1. Driving Webcam
+  drawPanel(vid,24,50,344,344,'1. DRIVING WEBCAM (INPUT)','#a78bfa');
+
+  // 2. Persona Source
+  drawPanel(personaImg,398,50,344,344,'2. TARGET PERSONA (SOURCE)','#38bdf8');
+
+  // 3. Output
+  const liveOutSource = (outCanvas && outCanvas.style.display!=='none') ? outCanvas : outVid;
+  drawPanel(liveOutSource,772,50,344,344,'3. LIVE NEURAL OUTPUT','#34d399');
+
+  // Footer status
+  ctx.fillStyle='#64748b';
+  ctx.font='11px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillText('Status: LivePortrait Active · Stitching: ENABLED · Landmark Track: ACTIVE · Drop into Arena chat',24,420);
+
+  canvas.toBlob(blob=>{
+    if(!blob)return;
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`eidomira-monitor-${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+    status('📸 Diagnostic snapshot saved! Drop it directly into Arena chat for immediate inspection.');
+  },'image/png');
 };
 $('recordBtn').onclick=()=>recorder&&recorder.state==='recording'?stopRecording():startRecording();
 async function startRecording(){
@@ -1024,7 +1104,7 @@ if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.ser
 $('cleanBtn').onclick=()=>document.body.classList.contains('cleanMode')?exitCleanMode():enterCleanMode();
 function enterCleanMode(){if(!$('output').srcObject)return;document.body.classList.add('cleanMode');document.documentElement.requestFullscreen?.().catch(()=>{});status('Clean output enabled. Press Escape to exit.')}
 function exitCleanMode(){document.body.classList.remove('cleanMode');if(document.fullscreenElement)document.exitFullscreen?.().catch(()=>{})}
-document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA'].includes(document.activeElement?.tagName))return;if(e.key==='Escape')exitCleanMode();if(e.key.toLowerCase()==='r'&&!$('recordBtn').disabled)$('recordBtn').click();if(e.key.toLowerCase()==='c'&&!$('recenterBtn').disabled)$('recenterBtn').click();if(e.key.toLowerCase()==='o'&&!$('cleanBtn').disabled)$('cleanBtn').click()});
+document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA'].includes(document.activeElement?.tagName))return;if(e.key==='Escape')exitCleanMode();if(e.key.toLowerCase()==='r'&&!$('recordBtn').disabled)$('recordBtn').click();if(e.key.toLowerCase()==='c'&&!$('recenterBtn').disabled)$('recenterBtn').click();if(e.key.toLowerCase()==='s'&&!$('snapshotBtn').disabled)$('snapshotBtn').click();if(e.key.toLowerCase()==='o'&&!$('cleanBtn').disabled)$('cleanBtn').click()});
 $('resetBtn').onclick=async()=>{stopTransform();if(session)await apiFetch('/api/sessions/'+session,{method:'DELETE'});session=null;$('source').value='';$('uploadCard').classList.remove('hasImage');$('goBtn').disabled=true;$('verified').textContent='PENDING';status('Session cleared. Choose another portrait.')};
 async function requestCallToken(endpoint,payload){const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}),j=await r.json();if(!r.ok)throw Error(j.error||'Call request failed');return j}
 $('createCall').onclick=async()=>{try{const name=$('callName').value.trim();if(!name)throw Error('Enter a display name');const auth=await requestCallToken('/api/calls/rooms',{display_name:name});$('callRoom').value=auth.room;await connectCall(auth)}catch(e){$('callStatus').textContent=e.message}};

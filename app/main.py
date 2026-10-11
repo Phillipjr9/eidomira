@@ -517,6 +517,21 @@ def recalibrate_session(sid: str):
     return {"ok": True}
 
 
+@app.get("/api/sessions/{sid}/monitor.jpg")
+def session_monitor_image(sid: str):
+    session = sessions.get(sid)
+    if not session:
+        return JSONResponse({"error": "Session expired"}, status_code=404)
+    from pathlib import Path
+    cap_path = Path("captures/monitor_side_by_side.jpg")
+    if not cap_path.exists():
+        cap_path = Path("captures/monitor_latest.jpg")
+    if not cap_path.exists():
+        return JSONResponse({"error": "No frames captured yet"}, status_code=404)
+    from fastapi.responses import FileResponse
+    return FileResponse(str(cap_path), media_type="image/jpeg")
+
+
 @app.get("/api/webrtc/{sid}/configuration")
 def webrtc_configuration(sid: str):
     if not sessions.get(sid):

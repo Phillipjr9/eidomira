@@ -340,6 +340,24 @@ class LivePortraitEngine(FaceSwapEngine):
                 else:
                     result_rgb = generated_rgb
 
+                # 9. Periodic diagnostic capture (every 15 frames) for agent and notebook inspection
+                if self._frame_count % 15 == 0:
+                    try:
+                        from pathlib import Path
+                        cap_dir = Path("captures")
+                        cap_dir.mkdir(parents=True, exist_ok=True)
+                        cv2.imwrite(str(cap_dir / "monitor_latest.jpg"), cv2.cvtColor(result_rgb, cv2.COLOR_RGB2BGR))
+
+                        s_rgb = identity.get("source_rgb")
+                        if s_rgb is not None:
+                            d_vis = cv2.resize(driving_crop_256, (256, 256))
+                            s_vis = cv2.resize(s_rgb, (256, 256))
+                            r_vis = cv2.resize(result_rgb, (256, 256))
+                            sbs = np.hstack([d_vis, s_vis, r_vis])
+                            cv2.imwrite(str(cap_dir / "monitor_side_by_side.jpg"), cv2.cvtColor(sbs, cv2.COLOR_RGB2BGR))
+                    except Exception:
+                        pass
+
                 latency = (time.perf_counter() - start) * 1000.0
                 return FrameResult(result_rgb, True, True, latency)
 

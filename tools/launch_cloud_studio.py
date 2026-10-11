@@ -258,7 +258,12 @@ def main():
             print("#" * 72, flush=True)
             print(f"\n  👉 OPEN THIS LINK ON YOUR MAC BROWSER (Chrome/Safari):", flush=True)
             print(f"     {public_url}/app\n", flush=True)
-            print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026", flush=True)
+            print(f"  🔑 DEMO PASSWORD: eidomira-demo-2026\n", flush=True)
+            print(f"  📸 TO SHARE LIVE OUTPUT FOR AGENT INSPECTION:", flush=True)
+            print(f"     1. In Eidomira Studio, click '📸 Snapshot' (or press S) to save", flush=True)
+            print(f"        a 3-panel comparison PNG directly to your computer, then drop it into Arena chat.", flush=True)
+            print(f"     2. Or in a new Kaggle notebook cell, run:", flush=True)
+            print(f"        from IPython.display import Image, display; display(Image('captures/monitor_side_by_side.jpg'))", flush=True)
             print("#" * 72 + "\n", flush=True)
         elif not server_ready:
             print("⚠️ Warning: Server did not respond within 60 seconds on port 8000.", flush=True)
