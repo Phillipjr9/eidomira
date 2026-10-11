@@ -199,23 +199,36 @@ def main():
     os.environ["STUDIO_RESTORATION_VISIBILITY"] = "0.6"
     os.environ["PYTHONUNBUFFERED"] = "1"
 
-    # Auto-detect NVIDIA GPU and ensure PyTorch with CUDA is installed
-    try:
-        import torch
-        cuda_ok = bool(torch.cuda.is_available() and torch.version.cuda)
-    except Exception:
-        cuda_ok = False
-
-    if not cuda_ok and shutil.which("nvidia-smi"):
-        print("Detected NVIDIA GPU hardware. Ensuring PyTorch with CUDA acceleration is active…", flush=True)
+    # Auto-detect NVIDIA GPU and ensure PyTorch with CUDA & onnxruntime-gpu are installed
+    if shutil.which("nvidia-smi"):
+        print("Detected NVIDIA GPU hardware. Ensuring full CUDA acceleration…", flush=True)
         subprocess.run([
             sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
             "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu124"
         ], check=False)
 
+        # Force onnxruntime-gpu so InSwapper, GFPGAN, and FaceParser run 100% on GPU
+        try:
+            import onnxruntime as ort
+            has_cuda_prov = "CUDAExecutionProvider" in ort.get_available_providers()
+        except Exception:
+            has_cuda_prov = False
+
+        if not has_cuda_prov:
+            print("Enabling onnxruntime-gpu for NVIDIA CUDA acceleration…", flush=True)
+            subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "onnxruntime", "onnxruntime-gpu"], check=False)
+            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir", "onnxruntime-gpu"], check=False)
+            try:
+                import importlib
+                import onnxruntime as ort
+                importlib.reload(ort)
+                print(f"✅ ONNX Hardware Providers: {ort.get_available_providers()}", flush=True)
+            except Exception:
+                pass
+
     # 1. Verify WebRTC & Studio dependencies
     pkgs = [
-        "aiortc", "av", "pydantic_settings", "argon2", "onnxruntime",
+        "aiortc", "av", "pydantic_settings", "argon2",
         "rich", "pykalman", "albumentations", "tyro"
     ]
     missing = []
@@ -229,7 +242,7 @@ def main():
         print(f"Installing missing studio dependencies: {' '.join(missing)}…", flush=True)
         subprocess.run([
             sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
-            "onnxruntime", "pydantic-settings", "argon2-cffi", "aiortc", "av",
+            "pydantic-settings", "argon2-cffi", "aiortc", "av",
             "python-multipart", "PyJWT", "rich", "pykalman", "albumentations", "tyro",
         ], check=True)
         print("Studio dependencies installed.", flush=True)
@@ -312,7 +325,9 @@ def main():
         sys.path.insert(0, str(ROOT))
 
         print(f"\n--- Initializing {args.mode.upper()} Neural Engine ---", flush=True)
-        from app.main import app as fastapi_app
+        from app.main import app as fastapi_app, engine
+        print(f"🚀 Active Neural Engine: {engine.name.upper()}", flush=True)
+        print(f"⚡ Acceleration Hardware: {getattr(engine, 'provider', 'CPU')}", flush=True)
 
         config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
         server = uvicorn.Server(config)
