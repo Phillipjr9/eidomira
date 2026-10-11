@@ -896,6 +896,12 @@ function startWebSocketTransform(){
 
 async function startTransform(){
   if(!session||!media)return;
+  // Cloudflare Quick Tunnels (*.trycloudflare.com) only proxy TCP HTTP/WebSocket, blocking WebRTC UDP media.
+  // Use direct WebSocket streaming over TCP 443 so video frames stream continuously without freezing!
+  if(location.hostname.includes('trycloudflare.com')||location.search.includes('stream=ws')){
+    startWebSocketTransform();
+    return;
+  }
   $('goBtn').disabled=true;status('Creating secure WebRTC session…');
   try{
     const configResponse=await apiFetch('/api/webrtc/'+session+'/configuration');

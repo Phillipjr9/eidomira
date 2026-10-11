@@ -121,6 +121,31 @@ def main():
     if liveportrait_dir.exists() and str(liveportrait_dir) not in sys.path:
         sys.path.append(str(liveportrait_dir))
 
+    # Apply hardware fallback patch so LivePortrait runs smoothly on both CPU and GPU
+    wrapper_file = liveportrait_dir / "src" / "live_portrait_wrapper.py"
+    if wrapper_file.exists():
+        try:
+            w = wrapper_file.read_text()
+            old_cond = "if inference_cfg.flag_force_cpu:"
+            new_cond = "if inference_cfg.flag_force_cpu or not (hasattr(torch, 'cuda') and torch.cuda.is_available() and getattr(torch.version, 'cuda', None)):\n            inference_cfg.flag_use_half_precision = False\n            inference_cfg.flag_force_cpu = True"
+            if old_cond in w and "torch.cuda.is_available()" not in w:
+                w = w.replace(old_cond, new_cond)
+                wrapper_file.write_text(w)
+        except Exception as exc:
+            print(f"Notice on wrapper patch: {exc}", flush=True)
+
+    cropper_file = liveportrait_dir / "src" / "utils" / "cropper.py"
+    if cropper_file.exists():
+        try:
+            c = cropper_file.read_text()
+            old_crop = "if flag_force_cpu:"
+            new_crop = "if flag_force_cpu or not (hasattr(torch, 'cuda') and torch.cuda.is_available() and getattr(torch.version, 'cuda', None)):"
+            if old_crop in c and "torch.cuda.is_available()" not in c:
+                c = c.replace(old_crop, new_crop)
+                cropper_file.write_text(c)
+        except Exception as exc:
+            print(f"Notice on cropper patch: {exc}", flush=True)
+
     print("\nTarget Neural Backend: LIVEPORTRAIT (Kling AI Reference Motion)", flush=True)
 
     # 3. Setup Cloudflare Tunnel binary
