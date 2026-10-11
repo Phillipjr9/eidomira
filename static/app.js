@@ -590,6 +590,7 @@ let callRoomInstance=null,callVideoTrack=null,callAudioTrack=null;
 
 async function health(){
   try{const j=await apiFetch('/api/health').then(r=>r.json());
+    window._currentEngine=j.backend;
     $('engineName').textContent=j.backend.toUpperCase();
     $('healthText').textContent=j.gpu?((j.provider?j.provider.toUpperCase():'GPU')+((j.accelerated===false)?' · CPU':' neural engine ready')):'Diagnostic transport mode';
     $('healthDot').style.background=(j.gpu&&j.accelerated!==false)?'#6ee7a5':(j.gpu?'#52d3ff':'#f59e0b');
@@ -754,7 +755,7 @@ $('enrollBtn').onclick=async()=>{
   try{
     const r=await apiFetch('/api/sessions',{method:'POST',body:d}),j=await r.json();
     if(!r.ok)throw Error(j.error||'Enrollment failed');
-    session=j.session_id;status('Identity enrolled! ('+(j.backend||'Neural')+' engine ready)');
+    session=j.session_id;window._currentEngine=j.backend;status('Identity enrolled! ('+(j.backend||'Neural')+' engine ready)');
     if(j.expires_in)$('privacyTtl').textContent='Ends '+Math.round(j.expires_in/60)+' minutes after enrolling';
     $('p1').classList.add('active');$('p2').classList.add('active');
     if(media)$('goBtn').disabled=false;
@@ -1071,9 +1072,10 @@ $('snapshotBtn').onclick=()=>{
   drawPanel(liveOutSource,772,50,344,344,'3. LIVE NEURAL OUTPUT','#34d399');
 
   // Footer status
+  const currentEngine = (window._currentEngine || 'NEURAL').toUpperCase();
   ctx.fillStyle='#64748b';
   ctx.font='11px ui-sans-serif, system-ui, sans-serif';
-  ctx.fillText('Status: LivePortrait Active · Stitching: ENABLED · Landmark Track: ACTIVE · Drop into Arena chat',24,420);
+  ctx.fillText(`Status: ${currentEngine} Engine · Real-time Stream · Drop into Arena chat`,24,420);
 
   canvas.toBlob(blob=>{
     if(!blob)return;
