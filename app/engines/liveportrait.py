@@ -339,13 +339,22 @@ class LivePortraitEngine(FaceSwapEngine):
                 out_gen = self.wrapper.warp_decode(identity["f_s"], identity["x_s"], x_d_new)
                 generated_rgb = self.wrapper.parse_output(out_gen["out"])[0]
 
-                # 8. Seamless Pasteback into source background
-                if self.flag_pasteback and identity.get("M_c2o") is not None and identity.get("mask_ori_float") is not None:
+                # 8. Live Webcam Face Replacement (TikTok Streamer Mode):
+                # Paste the transformed persona directly onto the user's live webcam video (rgb),
+                # preserving their real body, hands, hair, room lighting, and background!
+                if self.flag_pasteback and ret_dct.get("M_c2o") is not None:
+                    from src.utils.crop import prepare_paste_back
+                    driving_mask = prepare_paste_back(
+                        self.inference_cfg.mask_crop,
+                        ret_dct["M_c2o"],
+                        dsize=(rgb.shape[1], rgb.shape[0]),
+                    )
+                    img_crop_full = cv2.resize(generated_rgb, (self.crop_cfg.dsize, self.crop_cfg.dsize), interpolation=cv2.INTER_LINEAR)
                     result_rgb = paste_back(
-                        generated_rgb,
-                        identity["M_c2o"],
-                        identity["source_rgb"],
-                        identity["mask_ori_float"],
+                        img_crop_full,
+                        ret_dct["M_c2o"],
+                        rgb,
+                        driving_mask,
                     )
                 else:
                     result_rgb = generated_rgb
