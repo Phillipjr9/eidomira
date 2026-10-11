@@ -844,16 +844,17 @@ function startWebSocketTransform(){
       if(inFlight)return;
 
       const vid=$('video');if(!vid||vid.videoWidth===0)return;
-      wsCapCanvas.width=Math.min(vid.videoWidth||640,640);
-      wsCapCanvas.height=Math.min(vid.videoHeight||480,480);
-      capCtx.drawImage(vid,0,0,wsCapCanvas.width,wsCapCanvas.height);
+      // Optimize driving frame dimensions and compression for ultra-low latency (<20ms payload)
+      wsCapCanvas.width=384;
+      wsCapCanvas.height=384;
+      capCtx.drawImage(vid,0,0,384,384);
       inFlight=true;
       lastSendTime=Date.now();
       wsCapCanvas.toBlob(blob=>{
         if(blob&&liveWs&&liveWs.readyState===WebSocket.OPEN){
           blob.arrayBuffer().then(buf=>liveWs.send(buf)).catch(()=>{inFlight=false});
         }else{inFlight=false}
-      },'image/jpeg',0.82);
+      },'image/jpeg',0.70);
     },33); // 30 FPS target
   };
   liveWs.onmessage=async(e)=>{

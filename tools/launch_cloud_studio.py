@@ -83,6 +83,20 @@ def main():
     os.environ["STUDIO_RESTORATION_VISIBILITY"] = "0.6"
     os.environ["PYTHONUNBUFFERED"] = "1"
 
+    # Auto-detect NVIDIA GPU and ensure PyTorch with CUDA is installed
+    try:
+        import torch
+        cuda_ok = bool(torch.cuda.is_available() and torch.version.cuda)
+    except Exception:
+        cuda_ok = False
+
+    if not cuda_ok and shutil.which("nvidia-smi"):
+        print("Detected NVIDIA GPU hardware. Ensuring PyTorch with CUDA acceleration is active…", flush=True)
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
+            "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu124"
+        ], check=False)
+
     # 1. Verify WebRTC & Studio dependencies
     pkgs = [
         "aiortc", "av", "pydantic_settings", "argon2", "onnxruntime",

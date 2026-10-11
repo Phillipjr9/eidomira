@@ -233,53 +233,54 @@ class LivePortraitEngine(FaceSwapEngine):
         from src.utils.crop import paste_back
 
         try:
-            # 1. Detect and crop driving face from webcam frame
-            crop_info = self.cropper.crop_source_image(rgb, self.crop_cfg)
-            if crop_info is None:
-                # No face detected in webcam; return unchanged frame
-                return FrameResult(rgb, False, True, (time.perf_counter() - start) * 1000.0)
+            with torch.inference_mode():
+                # 1. Detect and crop driving face from webcam frame
+                crop_info = self.cropper.crop_source_image(rgb, self.crop_cfg)
+                if crop_info is None:
+                    # No face detected in webcam; return unchanged frame
+                    return FrameResult(rgb, False, True, (time.perf_counter() - start) * 1000.0)
 
-            driving_crop_256 = crop_info["img_crop_256x256"]
-            I_d = self.wrapper.prepare_source(driving_crop_256)
-            x_d_i_info = self.wrapper.get_kp_info(I_d)
-            R_d_i = get_rotation_matrix(x_d_i_info["pitch"], x_d_i_info["yaw"], x_d_i_info["roll"])
+                driving_crop_256 = crop_info["img_crop_256x256"]
+                I_d = self.wrapper.prepare_source(driving_crop_256)
+                x_d_i_info = self.wrapper.get_kp_info(I_d)
+                R_d_i = get_rotation_matrix(x_d_i_info["pitch"], x_d_i_info["yaw"], x_d_i_info["roll"])
 
-            # 2. Anchor calibration (first driving frame calibrates baseline neutral posture)
-            if identity["anchor_info"] is None:
-                identity["anchor_info"] = {
-                    k: v.clone() if isinstance(v, torch.Tensor) else v
-                    for k, v in x_d_i_info.items()
-                }
-                identity["anchor_R"] = R_d_i.clone()
+                # 2. Anchor calibration (first driving frame calibrates baseline neutral posture)
+                if identity["anchor_info"] is None:
+                    identity["anchor_info"] = {
+                        k: v.clone() if isinstance(v, torch.Tensor) else v
+                        for k, v in x_d_i_info.items()
+                    }
+                    identity["anchor_R"] = R_d_i.clone()
 
-            anchor = identity["anchor_info"]
-            anchor_R = identity["anchor_R"]
+                anchor = identity["anchor_info"]
+                anchor_R = identity["anchor_R"]
 
-            # 3. Compute relative motion and expression retargeting
-            delta_new = identity["x_s_info"]["exp"] + (x_d_i_info["exp"] - anchor["exp"])
-            R_new = (R_d_i @ anchor_R.permute(0, 2, 1)) @ identity["R_s"]
-            scale_new = identity["x_s_info"]["scale"] * (x_d_i_info["scale"] / anchor["scale"])
-            t_new = identity["x_s_info"]["t"] + (x_d_i_info["t"] - anchor["t"])
+                # 3. Compute relative motion and expression retargeting
+                delta_new = identity["x_s_info"]["exp"] + (x_d_i_info["exp"] - anchor["exp"])
+                R_new = (R_d_i @ anchor_R.permute(0, 2, 1)) @ identity["R_s"]
+                scale_new = identity["x_s_info"]["scale"] * (x_d_i_info["scale"] / anchor["scale"])
+                t_new = identity["x_s_info"]["t"] + (x_d_i_info["t"] - anchor["t"])
 
-            x_d_new = scale_new * (identity["x_s"] @ R_new) + t_new + delta_new
+                x_d_new = scale_new * (identity["x_s"] @ R_new) + t_new + delta_new
 
-            # 4. Neural Warp and SPADE generator
-            out_gen = self.wrapper.warp_decode(identity["f_s"], identity["x_s"], x_d_new)
-            generated_rgb = self.wrapper.parse_output(out_gen["out"])[0]
+                # 4. Neural Warp and SPADE generator
+                out_gen = self.wrapper.warp_decode(identity["f_s"], identity["x_s"], x_d_new)
+                generated_rgb = self.wrapper.parse_output(out_gen["out"])[0]
 
-            # 5. Seamless Pasteback into source background
-            if self.flag_pasteback and identity.get("M_c2o") is not None and identity.get("mask_ori_float") is not None:
-                result_rgb = paste_back(
-                    generated_rgb,
-                    identity["M_c2o"],
-                    identity["source_rgb"],
-                    identity["mask_ori_float"],
-                )
-            else:
-                result_rgb = generated_rgb
+                # 5. Seamless Pasteback into source background
+                if self.flag_pasteback and identity.get("M_c2o") is not None and identity.get("mask_ori_float") is not None:
+                    result_rgb = paste_back(
+                        generated_rgb,
+                        identity["M_c2o"],
+                        identity["source_rgb"],
+                        identity["mask_ori_float"],
+                    )
+                else:
+                    result_rgb = generated_rgb
 
-            latency = (time.perf_counter() - start) * 1000.0
-            return FrameResult(result_rgb, True, True, latency)
+                latency = (time.perf_counter() - start) * 1000.0
+                return FrameResult(result_rgb, True, True, latency)
 
         except Exception as exc:
             # Log error and fallback to driving frame
